@@ -1,0 +1,476 @@
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import { fetchChannels, addChannel, removeChannel } from "@/lib/api";
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                              */
+/* ------------------------------------------------------------------ */
+
+interface Channel {
+  id: string;
+  type: string;
+  name: string;
+  status: string;
+  lastActivity: string | null;
+}
+
+/* Channel metadata — zero-jargon descriptions */
+const CHANNEL_META: Record<
+  string,
+  {
+    label: string;
+    color: string;
+    bgColor: string;
+    description: string;
+    setupSteps: string[];
+    placeholder: string;
+    badge: string;
+  }
+> = {
+  telegram: {
+    label: "Telegram",
+    color: "text-blue-700",
+    bgColor: "bg-blue-100",
+    description:
+      "The fastest way to talk to your agent. Works on phones and desktop.",
+    setupSteps: [
+      'Open Telegram and search for "@BotFather".',
+      'Send the command "/newbot" and follow the prompts.',
+      "BotFather will give you a token (a long string of letters and numbers).",
+      "Copy that token and paste it below.",
+    ],
+    placeholder: "Paste your Telegram bot token here",
+    badge: "Fastest setup",
+  },
+  whatsapp: {
+    label: "WhatsApp",
+    color: "text-green-700",
+    bgColor: "bg-green-100",
+    description:
+      "Connect your WhatsApp Business account so people can message your agent on WhatsApp.",
+    setupSteps: [
+      "Go to the Meta Business Suite (business.facebook.com).",
+      'Navigate to Settings then "WhatsApp Accounts".',
+      'Find "Temporary access token" and copy it.',
+      "Paste the token below.",
+    ],
+    placeholder: "Paste your WhatsApp access token here",
+    badge: "Popular",
+  },
+  slack: {
+    label: "Slack",
+    color: "text-purple-700",
+    bgColor: "bg-purple-100",
+    description:
+      "Add your agent to a Slack workspace. Great for team use.",
+    setupSteps: [
+      "Go to api.slack.com/apps and click \"Create New App\".",
+      'Choose "From scratch" and pick your workspace.',
+      'Under "OAuth & Permissions", add the bot scopes: chat:write, app_mentions:read.',
+      'Install to workspace, then copy the "Bot User OAuth Token".',
+      "Paste the token below.",
+    ],
+    placeholder: "Paste your Slack bot token here",
+    badge: "Team-friendly",
+  },
+};
+
+/* ------------------------------------------------------------------ */
+/*  Channels Page                                                      */
+/* ------------------------------------------------------------------ */
+
+export default function ChannelsPage() {
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [addType, setAddType] = useState<string | null>(null);
+  const [token, setToken] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [removeConfirmId, setRemoveConfirmId] = useState<string | null>(null);
+  const [removing, setRemoving] = useState(false);
+
+  /* ---------------------------------------------------------------- */
+  /*  Data loading                                                     */
+  /* ---------------------------------------------------------------- */
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await fetchChannels();
+      setChannels(data as Channel[]);
+    } catch {
+      /* Silent fail */
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  /* ---------------------------------------------------------------- */
+  /*  Actions                                                          */
+  /* ---------------------------------------------------------------- */
+
+  const handleAdd = async () => {
+    if (!addType || !token.trim()) return;
+    setSaving(true);
+    try {
+      await addChannel({ type: addType, token: token.trim() });
+      setShowAdd(false);
+      setAddType(null);
+      setToken("");
+      load();
+    } catch {
+      /* Silent fail */
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRemove = async (id: string) => {
+    setRemoving(true);
+    try {
+      await removeChannel(id);
+      setRemoveConfirmId(null);
+      load();
+    } catch {
+      /* Silent fail */
+    } finally {
+      setRemoving(false);
+    }
+  };
+
+  /* ---------------------------------------------------------------- */
+  /*  Helpers                                                          */
+  /* ---------------------------------------------------------------- */
+
+  const statusDot = (status: string) => {
+    switch (status) {
+      case "connected":
+        return "status-dot-green";
+      case "error":
+        return "status-dot-red";
+      default:
+        return "status-dot-yellow";
+    }
+  };
+
+  const statusLabel = (status: string) => {
+    switch (status) {
+      case "connected":
+        return "Connected";
+      case "error":
+        return "Problem detected";
+      default:
+        return "Disconnected";
+    }
+  };
+
+  const formatDate = (iso: string | null) => {
+    if (!iso) return "No activity yet";
+    const d = new Date(iso);
+    const diff = Date.now() - d.getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "Active just now";
+    if (mins < 60) return `Active ${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `Active ${hrs}h ago`;
+    return `Active ${Math.floor(hrs / 24)}d ago`;
+  };
+
+  /* Which channel types are not yet connected? */
+  const connectedTypes = new Set(channels.map((c) => c.type));
+  const availableTypes = Object.keys(CHANNEL_META).filter(
+    (t) => !connectedTypes.has(t)
+  );
+
+  /* ---------------------------------------------------------------- */
+  /*  Render                                                           */
+  /* ---------------------------------------------------------------- */
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="page-title">Connected Apps</h1>
+          <p className="mt-1 text-sm text-gray-500">
+            Messaging apps your agent listens on.
+          </p>
+        </div>
+        {availableTypes.length > 0 && (
+          <button
+            onClick={() => {
+              setShowAdd(true);
+              setAddType(null);
+              setToken("");
+            }}
+            className="btn-primary"
+          >
+            <svg className="mr-1.5 h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            Add App
+          </button>
+        )}
+      </div>
+
+      {/* -------------------------------------------------------------- */}
+      {/*  Add channel panel                                              */}
+      {/* -------------------------------------------------------------- */}
+      {showAdd && (
+        <div className="card space-y-5 border-2 border-brand-200">
+          <div className="flex items-center justify-between">
+            <h2 className="section-title">Connect a Messaging App</h2>
+            <button
+              onClick={() => setShowAdd(false)}
+              className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 min-h-touch min-w-touch"
+              aria-label="Close"
+            >
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Step 1: Pick the app */}
+          {!addType ? (
+            <div className="grid gap-3 sm:grid-cols-3">
+              {availableTypes.map((type) => {
+                const meta = CHANNEL_META[type];
+                return (
+                  <button
+                    key={type}
+                    onClick={() => setAddType(type)}
+                    className="card text-left hover:border-brand-300 hover:shadow-md transition cursor-pointer min-h-touch"
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <span
+                        className={`inline-flex h-8 w-8 items-center justify-center rounded-lg ${meta.bgColor} ${meta.color} text-xs font-bold`}
+                      >
+                        {meta.label.charAt(0)}
+                      </span>
+                      <span className="text-sm font-semibold text-gray-900">
+                        {meta.label}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      {meta.description}
+                    </p>
+                    <span
+                      className={`mt-2 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${meta.bgColor} ${meta.color}`}
+                    >
+                      {meta.badge}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            /* Step 2: Guided setup */
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setAddType(null)}
+                  className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 min-h-touch min-w-touch"
+                  aria-label="Back"
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                  </svg>
+                </button>
+                <span
+                  className={`inline-flex h-8 w-8 items-center justify-center rounded-lg ${CHANNEL_META[addType].bgColor} ${CHANNEL_META[addType].color} text-xs font-bold`}
+                >
+                  {CHANNEL_META[addType].label.charAt(0)}
+                </span>
+                <span className="text-sm font-semibold text-gray-900">
+                  Connect {CHANNEL_META[addType].label}
+                </span>
+              </div>
+
+              {/* Setup steps */}
+              <div className="rounded-lg bg-gray-50 p-4">
+                <p className="text-xs font-medium text-gray-600 mb-2 uppercase tracking-wide">
+                  How to get your token
+                </p>
+                <ol className="space-y-2">
+                  {CHANNEL_META[addType].setupSteps.map((step, i) => (
+                    <li
+                      key={i}
+                      className="flex items-start gap-2.5 text-sm text-gray-700"
+                    >
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-100 text-[10px] font-bold text-brand-700 mt-0.5">
+                        {i + 1}
+                      </span>
+                      {step}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+
+              {/* Token input */}
+              <div>
+                <label
+                  htmlFor="channel-token"
+                  className="block text-sm font-medium text-gray-700 mb-1.5"
+                >
+                  Paste your token
+                </label>
+                <input
+                  id="channel-token"
+                  type="text"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  placeholder={CHANNEL_META[addType].placeholder}
+                  className="input-field font-mono text-sm"
+                />
+              </div>
+
+              <button
+                onClick={handleAdd}
+                disabled={saving || !token.trim()}
+                className="btn-primary"
+              >
+                {saving ? (
+                  <>
+                    <span className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                    Connecting...
+                  </>
+                ) : (
+                  `Connect ${CHANNEL_META[addType].label}`
+                )}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* -------------------------------------------------------------- */}
+      {/*  Connected channels list                                        */}
+      {/* -------------------------------------------------------------- */}
+      {loading ? (
+        <div className="space-y-3">
+          {[1, 2].map((i) => (
+            <div
+              key={i}
+              className="animate-pulse h-20 rounded-xl bg-gray-200"
+            />
+          ))}
+        </div>
+      ) : channels.length > 0 ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {channels.map((ch) => {
+            const meta = CHANNEL_META[ch.type] ?? {
+              label: ch.type,
+              color: "text-gray-700",
+              bgColor: "bg-gray-100",
+            };
+
+            return (
+              <div key={ch.id} className="card">
+                {/* Header */}
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`inline-flex h-9 w-9 items-center justify-center rounded-lg ${meta.bgColor} ${meta.color} text-sm font-bold`}
+                    >
+                      {meta.label.charAt(0)}
+                    </span>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {ch.name || meta.label}
+                      </p>
+                      <p className="text-[11px] text-gray-500">
+                        {meta.label}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Status */}
+                <div className="flex items-center gap-2 mb-3">
+                  <span className={statusDot(ch.status)} />
+                  <span className="text-xs text-gray-600">
+                    {statusLabel(ch.status)}
+                  </span>
+                </div>
+
+                {/* Last activity */}
+                <p className="text-[11px] text-gray-400 mb-3">
+                  {formatDate(ch.lastActivity)}
+                </p>
+
+                {/* Remove */}
+                {removeConfirmId === ch.id ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-red-600">
+                      Disconnect this app?
+                    </span>
+                    <button
+                      onClick={() => handleRemove(ch.id)}
+                      disabled={removing}
+                      className="text-xs font-medium text-red-600 hover:text-red-700 min-h-touch"
+                    >
+                      {removing ? "Removing..." : "Yes, disconnect"}
+                    </button>
+                    <button
+                      onClick={() => setRemoveConfirmId(null)}
+                      className="text-xs font-medium text-gray-500 hover:text-gray-700 min-h-touch"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setRemoveConfirmId(ch.id)}
+                    className="text-xs font-medium text-gray-400 hover:text-red-600 transition min-h-touch"
+                  >
+                    Disconnect
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        /* Empty state */
+        <div className="card flex flex-col items-center justify-center py-12 text-center">
+          <svg
+            className="h-12 w-12 text-gray-300"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={1}
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"
+            />
+          </svg>
+          <h3 className="mt-3 text-sm font-medium text-gray-600">
+            No apps connected
+          </h3>
+          <p className="mt-1 text-xs text-gray-400 max-w-sm">
+            Connect a messaging app so people can talk to your agent.
+            Telegram is the fastest to set up.
+          </p>
+          <button
+            onClick={() => {
+              setShowAdd(true);
+              setAddType(null);
+              setToken("");
+            }}
+            className="btn-primary mt-4 text-sm"
+          >
+            Connect Your First App
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,18 @@
+{
+  "name": "API Lookup",
+  "description": "Call an external API when specific keywords are mentioned and share the result.",
+  "trigger_type": "keyword",
+  "trigger_config": {
+    "keywords": ["weather", "stock", "news"],
+    "match": "any",
+    "case_sensitive": false
+  },
+  "action_type": "api_call",
+  "action_config": {
+    "url": "https://api.example.com/lookup?q={message}",
+    "method": "GET",
+    "headers": {
+      "Accept": "application/json"
+    }
+  }
+}

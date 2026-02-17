@@ -1,0 +1,15 @@
+{
+  "name": "Webhook Handler",
+  "description": "Process incoming webhook data and take action based on the payload.",
+  "trigger_type": "webhook",
+  "trigger_config": {
+    "path": "/webhook/custom",
+    "method": "POST"
+  },
+  "action_type": "run_prompt",
+  "action_config": {
+    "prompt": "Process this webhook data and determine the appropriate action: {payload}",
+    "system_prompt": "You process webhook payloads and extract actionable information. Return a structured summary of what happened and what action should be taken.",
+    "store_result": true
+  }
+}

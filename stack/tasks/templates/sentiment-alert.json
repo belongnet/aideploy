@@ -1,0 +1,15 @@
+{
+  "name": "Sentiment Alert",
+  "description": "Detect frustrated or unhappy messages and send an alert.",
+  "trigger_type": "keyword",
+  "trigger_config": {
+    "keywords": ["angry", "frustrated", "terrible", "worst", "unacceptable", "complaint"],
+    "match": "any",
+    "case_sensitive": false
+  },
+  "action_type": "notify",
+  "action_config": {
+    "channel_id": "",
+    "message": "Alert: A user ({sender}) seems unhappy. Message: \"{message}\". Consider following up personally."
+  }
+}

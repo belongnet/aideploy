@@ -1,0 +1,15 @@
+{
+  "name": "Forward to Specialist",
+  "description": "Forward technical questions to a specialist agent for detailed answers.",
+  "trigger_type": "keyword",
+  "trigger_config": {
+    "keywords": ["technical", "advanced", "developer", "API", "integration"],
+    "match": "any",
+    "case_sensitive": false
+  },
+  "action_type": "agent_forward",
+  "action_config": {
+    "target_agent_id": "",
+    "prompt": "A user asked a technical question: \"{message}\". Please provide a detailed, expert-level response."
+  }
+}

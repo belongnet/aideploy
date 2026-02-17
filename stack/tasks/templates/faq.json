@@ -1,0 +1,14 @@
+{
+  "name": "FAQ Auto-Reply",
+  "description": "Automatically answer frequently asked questions when specific keywords are detected.",
+  "trigger_type": "keyword",
+  "trigger_config": {
+    "keywords": ["hours", "pricing", "location", "contact", "help"],
+    "match": "any",
+    "case_sensitive": false
+  },
+  "action_type": "reply",
+  "action_config": {
+    "prompt": "The user asked: \"{message}\". Answer their question helpfully using the information available. If you don't know the specific answer, let them know you'll connect them with someone who can help."
+  }
+}

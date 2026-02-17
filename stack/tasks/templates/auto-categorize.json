@@ -1,0 +1,16 @@
+{
+  "name": "Auto-Categorize",
+  "description": "Automatically categorize incoming messages by topic using AI.",
+  "trigger_type": "keyword",
+  "trigger_config": {
+    "keywords": [".*"],
+    "match": "regex",
+    "case_sensitive": false
+  },
+  "action_type": "run_prompt",
+  "action_config": {
+    "prompt": "Categorize this message into one of these categories: Support, Sales, Feedback, General, Urgent. Message from {sender}: \"{message}\". Return ONLY the category name.",
+    "system_prompt": "You categorize messages into predefined categories. Return only the category name, nothing else.",
+    "store_result": true
+  }
+}
