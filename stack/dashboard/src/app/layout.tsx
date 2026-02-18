@@ -4,8 +4,9 @@ import "./globals.css";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useDashboardStore } from "@/lib/store";
-import { useEffect, useCallback } from "react";
-import { fetchStatus, fetchStats } from "@/lib/api";
+import { useEffect, useCallback, useState } from "react";
+import { useRouter } from "next/navigation";
+import { fetchStatus, fetchStats, fetchSetupStatus } from "@/lib/api";
 
 /* ------------------------------------------------------------------ */
 /*  Navigation items (zero-jargon labels)                              */
@@ -143,8 +144,31 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { sidebarOpen, setSidebarOpen, setAgentStatus, setStats } =
     useDashboardStore();
+  const [setupChecked, setSetupChecked] = useState(false);
+  const isSetupPage = pathname === "/setup";
+
+  /** Check if first-run setup is needed */
+  useEffect(() => {
+    if (isSetupPage) {
+      setSetupChecked(true);
+      return;
+    }
+    fetchSetupStatus()
+      .then((data) => {
+        if (data.setupRequired) {
+          router.replace("/setup");
+        } else {
+          setSetupChecked(true);
+        }
+      })
+      .catch(() => {
+        // Agent not ready yet — show dashboard anyway
+        setSetupChecked(true);
+      });
+  }, [isSetupPage, router]);
 
   /** Fetch agent status and stats on mount */
   const loadGlobalData = useCallback(async () => {
@@ -181,6 +205,19 @@ export default function RootLayout({
         <title>Agent Dashboard</title>
       </head>
       <body className="min-h-screen">
+        {/* -------------------------------------------------------- */}
+        {/*  Setup page — minimal chrome, no sidebar/nav             */}
+        {/* -------------------------------------------------------- */}
+        {isSetupPage ? (
+          <main className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">
+            {children}
+          </main>
+        ) : !setupChecked ? (
+          <div className="flex items-center justify-center min-h-screen">
+            <div className="w-8 h-8 border-4 border-gray-200 border-t-brand-600 rounded-full animate-spin" />
+          </div>
+        ) : (
+        <>
         {/* -------------------------------------------------------- */}
         {/*  Mobile overlay                                          */}
         {/* -------------------------------------------------------- */}
@@ -304,6 +341,8 @@ export default function RootLayout({
             );
           })}
         </nav>
+        </>
+        )}
       </body>
     </html>
   );

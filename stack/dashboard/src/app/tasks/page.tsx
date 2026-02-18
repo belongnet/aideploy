@@ -295,7 +295,7 @@ export default function TasksPage() {
                   rows={3}
                   value={aiPrompt}
                   onChange={(e) => setAiPrompt(e.target.value)}
-                  placeholder='For example: "When someone asks about pricing, reply with our current rates" or "Every morning, send a summary of yesterday\'s conversations to Slack"'
+                  placeholder={'For example: "When someone asks about pricing, reply with our current rates" or "Every morning, send a summary of yesterday\'s conversations to Slack"'}
                   className="input-field resize-none"
                 />
               </div>

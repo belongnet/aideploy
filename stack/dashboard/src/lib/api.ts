@@ -230,3 +230,33 @@ export const exportData = () =>
 
 export const shutDown = () =>
   request<{ ok: boolean }>("/api/system/shutdown", { method: "POST" });
+
+/* ------------------------------------------------------------------ */
+/*  First-run AI setup                                                 */
+/* ------------------------------------------------------------------ */
+
+/** Check which AI providers need setup (consumer login) */
+export const fetchSetupStatus = () =>
+  request<{
+    setupRequired: boolean;
+    providers: {
+      id: string;
+      name: string;
+      authMethod: "consumer" | "api_key";
+      connected: boolean;
+    }[];
+  }>("/api/setup/status");
+
+/** Submit a consumer session token for a provider (stored locally in Postgres) */
+export const submitProviderToken = (
+  provider: string,
+  token: string
+) =>
+  request<{ ok: boolean; connectedAs?: string }>("/api/setup/connect", {
+    method: "POST",
+    body: JSON.stringify({ provider, token }),
+  });
+
+/** Mark first-run setup as complete */
+export const completeSetup = () =>
+  request<{ ok: boolean }>("/api/setup/complete", { method: "POST" });
