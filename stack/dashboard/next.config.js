@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: "standalone",
   /*
    * Proxy /api requests to the agent backend.
    *
