@@ -182,36 +182,57 @@ class OpenAIAdapter(LLMAdapter):
         temperature: Optional[float],
         max_tokens: Optional[int],
     ) -> dict[str, Any]:
-        """Call the Responses API (OAuth / ChatGPT subscription)."""
+        """Call the Responses API (OAuth / ChatGPT subscription).
+
+        Uses instructions field for system prompt and stream: true (required for codex endpoint).
+        Parses SSE events to collect response text.
+        """
+        # Separate system prompt from user messages
+        instructions = None
+        input_messages = []
+        for msg in messages:
+            if msg["role"] == "system":
+                instructions = msg["content"]
+            else:
+                input_messages.append(msg)
+
         payload: dict[str, Any] = {
             "model": self.config.model,
-            "input": messages,
+            "input": input_messages,
             "store": False,
+            "stream": True,
         }
+        if instructions:
+            payload["instructions"] = instructions
         if temperature is not None or self.config.temperature:
             payload["temperature"] = temperature or self.config.temperature
         if max_tokens is not None or self.config.max_tokens:
             payload["max_output_tokens"] = max_tokens or self.config.max_tokens
 
-        async with httpx.AsyncClient(timeout=120) as client:
-            resp = await client.post(self.RESPONSES_URL, json=payload, headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
-
-        # Extract text from Responses API output format
+        # Parse SSE stream to collect response text
         text = ""
-        for output_item in data.get("output", []):
-            if output_item.get("type") == "message":
-                for block in output_item.get("content", []):
-                    if block.get("type") == "output_text":
-                        text += block.get("text", "")
+        async with httpx.AsyncClient(timeout=120) as client:
+            async with client.stream(
+                "POST", self.RESPONSES_URL, json=payload, headers=headers
+            ) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    raw = line[6:]
+                    if raw == "[DONE]":
+                        break
+                    event = _json.loads(raw)
+                    if event.get("type") == "response.output_text.delta":
+                        delta = event.get("delta", "")
+                        if delta:
+                            text += delta
 
-        usage = data.get("usage", {})
         return {
-            "content": text,
-            "finish_reason": data.get("status", "completed"),
-            "tokens_used": usage.get("total_tokens", 0),
-            "model": data.get("model", self.config.model),
+            "content": text or "No response received from model.",
+            "finish_reason": "completed",
+            "tokens_used": 0,
+            "model": self.config.model,
         }
 
     async def _chat_completions(
@@ -226,7 +247,7 @@ class OpenAIAdapter(LLMAdapter):
             "model": self.config.model,
             "messages": messages,
             "temperature": temperature or self.config.temperature,
-            "max_tokens": max_tokens or self.config.max_tokens,
+            "max_completion_tokens": max_tokens or self.config.max_tokens,
         }
 
         async with httpx.AsyncClient(timeout=120) as client:
@@ -268,13 +289,26 @@ class OpenAIAdapter(LLMAdapter):
         temperature: Optional[float],
         max_tokens: Optional[int],
     ) -> AsyncIterator[str]:
-        """Stream from the Responses API (OAuth / ChatGPT subscription)."""
+        """Stream from the Responses API (OAuth / ChatGPT subscription).
+
+        Uses instructions field for system prompt (not in input array).
+        """
+        instructions = None
+        input_messages = []
+        for msg in messages:
+            if msg["role"] == "system":
+                instructions = msg["content"]
+            else:
+                input_messages.append(msg)
+
         payload: dict[str, Any] = {
             "model": self.config.model,
-            "input": messages,
+            "input": input_messages,
             "store": False,
             "stream": True,
         }
+        if instructions:
+            payload["instructions"] = instructions
         if temperature is not None or self.config.temperature:
             payload["temperature"] = temperature or self.config.temperature
         if max_tokens is not None or self.config.max_tokens:
@@ -309,7 +343,7 @@ class OpenAIAdapter(LLMAdapter):
             "model": self.config.model,
             "messages": messages,
             "temperature": temperature or self.config.temperature,
-            "max_tokens": max_tokens or self.config.max_tokens,
+            "max_completion_tokens": max_tokens or self.config.max_tokens,
             "stream": True,
         }
 
