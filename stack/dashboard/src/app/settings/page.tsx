@@ -34,11 +34,16 @@ interface Config {
 }
 
 /* Model options by provider */
-const MODEL_OPTIONS: Record<string, { value: string; label: string }[]> = {
+const MODEL_OPTIONS: Record<
+  string,
+  { value: string; label: string; note?: string }[]
+> = {
   openai: [
-    { value: "codex-5.3", label: "Codex 5.3" },
-    { value: "gpt-4o", label: "GPT-4o" },
-    { value: "gpt-4o-mini", label: "GPT-4o Mini" },
+    { value: "gpt-5.3-codex", label: "GPT-5.3 Codex", note: "OAuth" },
+    { value: "gpt-5.2", label: "GPT-5.2", note: "OAuth / API key" },
+    { value: "gpt-5.1", label: "GPT-5.1", note: "OAuth / API key" },
+    { value: "gpt-5-mini", label: "GPT-5 Mini", note: "API key only" },
+    { value: "gpt-4o", label: "GPT-4o", note: "API key only" },
   ],
   anthropic: [
     { value: "claude-opus-4-6", label: "Claude Opus 4.6" },
@@ -339,7 +344,7 @@ export default function SettingsPage() {
             >
               {models.map((m) => (
                 <option key={m.value} value={m.value}>
-                  {m.label}
+                  {m.label}{m.note ? ` (${m.note})` : ""}
                 </option>
               ))}
             </select>
@@ -353,8 +358,10 @@ export default function SettingsPage() {
             />
           )}
           <p className="mt-1 text-xs text-gray-400">
-            The AI model your agent uses to respond. Higher-tier models are
-            smarter but may be slower.
+            The AI model your agent uses to respond.
+            {config.modelProvider === "openai" && (
+              <> OAuth (ChatGPT subscription) supports Codex, 5.2, and 5.1. API key supports all models.</>
+            )}
           </p>
         </div>
       </section>

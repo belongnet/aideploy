@@ -1,7 +1,7 @@
 """
 OpenClaw Agent — LLM Client with 4 provider adapters + OAuth refresh.
 
-Supports: OpenAI (Codex 5.3), Anthropic (Claude Opus 4.6),
+Supports: OpenAI (gpt-5.3-codex), Anthropic (Claude Opus 4.6),
           Google Gemini (3 Deep Think), Moonshot Kimi (K2.5).
 
 OAuth tokens are auto-refreshed before expiry.
@@ -10,6 +10,7 @@ API key flow is supported as a fallback for all providers.
 
 from __future__ import annotations
 
+import json as _json
 import logging
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 # ── Token Refresh Endpoints ──────────────────────────────────
 
 REFRESH_URLS = {
-    "openai": "https://auth0.openai.com/oauth/token",
+    "openai": "https://auth.openai.com/oauth/token",
     "anthropic": "https://console.anthropic.com/oauth/token",
 }
 
@@ -146,9 +147,20 @@ class LLMAdapter(ABC):
 
 
 class OpenAIAdapter(LLMAdapter):
-    """Adapter for OpenAI / ChatGPT models (default: Codex 5.3)."""
+    """Adapter for OpenAI / ChatGPT models (default: gpt-5.3-codex).
 
-    BASE_URL = "https://api.openai.com/v1"
+    OAuth (ChatGPT subscription) → Responses API at chatgpt.com/backend-api
+    API key                      → Chat Completions API at api.openai.com/v1
+    """
+
+    COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
+    RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses"
+
+    @property
+    def _use_responses_api(self) -> bool:
+        return self.config.auth_method == AuthMethod.OAUTH
+
+    # ── Non-streaming ────────────────────────────────────────
 
     async def chat(
         self,
@@ -159,6 +171,57 @@ class OpenAIAdapter(LLMAdapter):
         headers = await self.get_auth_headers()
         headers["Content-Type"] = "application/json"
 
+        if self._use_responses_api:
+            return await self._chat_responses(headers, messages, temperature, max_tokens)
+        return await self._chat_completions(headers, messages, temperature, max_tokens)
+
+    async def _chat_responses(
+        self,
+        headers: dict[str, str],
+        messages: list[dict[str, str]],
+        temperature: Optional[float],
+        max_tokens: Optional[int],
+    ) -> dict[str, Any]:
+        """Call the Responses API (OAuth / ChatGPT subscription)."""
+        payload: dict[str, Any] = {
+            "model": self.config.model,
+            "input": messages,
+            "store": False,
+        }
+        if temperature is not None or self.config.temperature:
+            payload["temperature"] = temperature or self.config.temperature
+        if max_tokens is not None or self.config.max_tokens:
+            payload["max_output_tokens"] = max_tokens or self.config.max_tokens
+
+        async with httpx.AsyncClient(timeout=120) as client:
+            resp = await client.post(self.RESPONSES_URL, json=payload, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+
+        # Extract text from Responses API output format
+        text = ""
+        for output_item in data.get("output", []):
+            if output_item.get("type") == "message":
+                for block in output_item.get("content", []):
+                    if block.get("type") == "output_text":
+                        text += block.get("text", "")
+
+        usage = data.get("usage", {})
+        return {
+            "content": text,
+            "finish_reason": data.get("status", "completed"),
+            "tokens_used": usage.get("total_tokens", 0),
+            "model": data.get("model", self.config.model),
+        }
+
+    async def _chat_completions(
+        self,
+        headers: dict[str, str],
+        messages: list[dict[str, str]],
+        temperature: Optional[float],
+        max_tokens: Optional[int],
+    ) -> dict[str, Any]:
+        """Call the Chat Completions API (API key)."""
         payload = {
             "model": self.config.model,
             "messages": messages,
@@ -167,23 +230,20 @@ class OpenAIAdapter(LLMAdapter):
         }
 
         async with httpx.AsyncClient(timeout=120) as client:
-            resp = await client.post(
-                f"{self.BASE_URL}/chat/completions",
-                json=payload,
-                headers=headers,
-            )
+            resp = await client.post(self.COMPLETIONS_URL, json=payload, headers=headers)
             resp.raise_for_status()
             data = resp.json()
 
         choice = data["choices"][0]
         usage = data.get("usage", {})
-
         return {
             "content": choice["message"]["content"],
             "finish_reason": choice.get("finish_reason", "stop"),
             "tokens_used": usage.get("total_tokens", 0),
             "model": data.get("model", self.config.model),
         }
+
+    # ── Streaming ────────────────────────────────────────────
 
     async def chat_stream(
         self,
@@ -194,6 +254,57 @@ class OpenAIAdapter(LLMAdapter):
         headers = await self.get_auth_headers()
         headers["Content-Type"] = "application/json"
 
+        if self._use_responses_api:
+            async for token in self._stream_responses(headers, messages, temperature, max_tokens):
+                yield token
+        else:
+            async for token in self._stream_completions(headers, messages, temperature, max_tokens):
+                yield token
+
+    async def _stream_responses(
+        self,
+        headers: dict[str, str],
+        messages: list[dict[str, str]],
+        temperature: Optional[float],
+        max_tokens: Optional[int],
+    ) -> AsyncIterator[str]:
+        """Stream from the Responses API (OAuth / ChatGPT subscription)."""
+        payload: dict[str, Any] = {
+            "model": self.config.model,
+            "input": messages,
+            "store": False,
+            "stream": True,
+        }
+        if temperature is not None or self.config.temperature:
+            payload["temperature"] = temperature or self.config.temperature
+        if max_tokens is not None or self.config.max_tokens:
+            payload["max_output_tokens"] = max_tokens or self.config.max_tokens
+
+        async with httpx.AsyncClient(timeout=120) as client:
+            async with client.stream(
+                "POST", self.RESPONSES_URL, json=payload, headers=headers
+            ) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    raw = line[6:]
+                    if raw == "[DONE]":
+                        break
+                    event = _json.loads(raw)
+                    if event.get("type") == "response.output_text.delta":
+                        delta = event.get("delta", "")
+                        if delta:
+                            yield delta
+
+    async def _stream_completions(
+        self,
+        headers: dict[str, str],
+        messages: list[dict[str, str]],
+        temperature: Optional[float],
+        max_tokens: Optional[int],
+    ) -> AsyncIterator[str]:
+        """Stream from the Chat Completions API (API key)."""
         payload = {
             "model": self.config.model,
             "messages": messages,
@@ -204,17 +315,12 @@ class OpenAIAdapter(LLMAdapter):
 
         async with httpx.AsyncClient(timeout=120) as client:
             async with client.stream(
-                "POST",
-                f"{self.BASE_URL}/chat/completions",
-                json=payload,
-                headers=headers,
+                "POST", self.COMPLETIONS_URL, json=payload, headers=headers
             ) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
                     if line.startswith("data: ") and line != "data: [DONE]":
-                        import json
-
-                        chunk = json.loads(line[6:])
+                        chunk = _json.loads(line[6:])
                         delta = chunk["choices"][0].get("delta", {})
                         if "content" in delta and delta["content"]:
                             yield delta["content"]
