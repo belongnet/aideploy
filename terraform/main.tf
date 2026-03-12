@@ -77,44 +77,60 @@ module "digitalocean" {
   source = "./digitalocean"
   count  = var.cloud_provider == "digitalocean" ? 1 : 0
 
-  token        = var.cloud_token
-  region       = var.region
-  size         = local.do_sizes[var.server_size]
-  deploy_id    = var.deploy_id
-  cloud_init   = local.cloud_init_rendered
-  ssh_key      = var.ssh_public_key
+  token                      = var.cloud_token
+  region                     = var.region
+  size                       = local.do_sizes[var.server_size]
+  deploy_id                  = var.deploy_id
+  cloud_init                 = local.cloud_init_rendered
+  ssh_key                    = var.ssh_public_key
+  webhook_ingress_ipv4_cidrs = var.webhook_ingress_ipv4_cidrs
+  webhook_ingress_ipv6_cidrs = var.webhook_ingress_ipv6_cidrs
+  egress_ipv4_cidrs          = var.egress_ipv4_cidrs
+  egress_ipv6_cidrs          = var.egress_ipv6_cidrs
 }
 
 module "aws" {
   source = "./aws"
   count  = var.cloud_provider == "aws" ? 1 : 0
 
-  access_key     = var.cloud_token
-  region         = var.region
-  instance_type  = local.aws_sizes[var.server_size]
-  deploy_id      = var.deploy_id
-  cloud_init     = local.cloud_init_rendered
-  ssh_key        = var.ssh_public_key
+  access_key                 = var.cloud_token
+  region                     = var.region
+  instance_type              = local.aws_sizes[var.server_size]
+  deploy_id                  = var.deploy_id
+  cloud_init                 = local.cloud_init_rendered
+  ssh_key                    = var.ssh_public_key
+  webhook_ingress_ipv4_cidrs = var.webhook_ingress_ipv4_cidrs
+  webhook_ingress_ipv6_cidrs = var.webhook_ingress_ipv6_cidrs
+  egress_ipv4_cidrs          = var.egress_ipv4_cidrs
+  egress_ipv6_cidrs          = var.egress_ipv6_cidrs
 }
 
 module "gcp" {
   source = "./gcp"
   count  = var.cloud_provider == "gcp" ? 1 : 0
 
-  token         = var.cloud_token
-  zone          = var.region
-  machine_type  = local.gcp_sizes[var.server_size]
-  deploy_id     = var.deploy_id
-  cloud_init    = local.cloud_init_rendered
+  token                      = var.cloud_token
+  zone                       = var.region
+  machine_type               = local.gcp_sizes[var.server_size]
+  deploy_id                  = var.deploy_id
+  cloud_init                 = local.cloud_init_rendered
+  webhook_ingress_ipv4_cidrs = var.webhook_ingress_ipv4_cidrs
+  webhook_ingress_ipv6_cidrs = var.webhook_ingress_ipv6_cidrs
+  egress_ipv4_cidrs          = var.egress_ipv4_cidrs
+  egress_ipv6_cidrs          = var.egress_ipv6_cidrs
 }
 
 module "azure" {
   source = "./azure"
   count  = var.cloud_provider == "azure" ? 1 : 0
 
-  token         = var.cloud_token
-  location      = var.region
-  vm_size       = local.azure_sizes[var.server_size]
-  deploy_id     = var.deploy_id
-  cloud_init    = local.cloud_init_rendered
+  token                      = var.cloud_token
+  location                   = var.region
+  vm_size                    = local.azure_sizes[var.server_size]
+  deploy_id                  = var.deploy_id
+  cloud_init                 = local.cloud_init_rendered
+  webhook_ingress_ipv4_cidrs = var.webhook_ingress_ipv4_cidrs
+  webhook_ingress_ipv6_cidrs = var.webhook_ingress_ipv6_cidrs
+  egress_ipv4_cidrs          = var.egress_ipv4_cidrs
+  egress_ipv6_cidrs          = var.egress_ipv6_cidrs
 }

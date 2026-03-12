@@ -39,8 +39,52 @@ variable "ssh_key" {
   default = ""
 }
 
+variable "webhook_ingress_ipv4_cidrs" {
+  type    = list(string)
+  default = ["0.0.0.0/0"]
+}
+
+variable "webhook_ingress_ipv6_cidrs" {
+  type    = list(string)
+  default = []
+}
+
+variable "egress_ipv4_cidrs" {
+  type    = list(string)
+  default = ["0.0.0.0/0"]
+}
+
+variable "egress_ipv6_cidrs" {
+  type    = list(string)
+  default = []
+}
+
 provider "digitalocean" {
   token = var.token
+}
+
+locals {
+  webhook_ingress_addresses = concat(var.webhook_ingress_ipv4_cidrs, var.webhook_ingress_ipv6_cidrs)
+  egress_addresses          = concat(var.egress_ipv4_cidrs, var.egress_ipv6_cidrs)
+  webhook_ingress_rules = [
+    {
+      protocol   = "tcp"
+      port_range = "443"
+    },
+  ]
+  egress_rules = [
+    {
+      protocol   = "tcp"
+      port_range = "1-65535"
+    },
+    {
+      protocol   = "udp"
+      port_range = "1-65535"
+    },
+    {
+      protocol = "icmp"
+    },
+  ]
 }
 
 # SSH key (optional)
@@ -67,61 +111,29 @@ resource "digitalocean_droplet" "openclaw" {
   }
 }
 
-# Firewall: allow SSH, HTTP/S, Tailscale, and gateway ports
+# Firewall: allow only webhook ingress and allowlisted egress
 resource "digitalocean_firewall" "openclaw" {
   name        = "openclaw-${var.deploy_id}"
   droplet_ids = [digitalocean_droplet.openclaw.id]
 
-  # SSH
-  inbound_rule {
-    protocol         = "tcp"
-    port_range       = "22"
-    source_addresses = ["0.0.0.0/0", "::/0"]
+  dynamic "inbound_rule" {
+    for_each = length(local.webhook_ingress_addresses) > 0 ? local.webhook_ingress_rules : []
+
+    content {
+      protocol         = inbound_rule.value.protocol
+      port_range       = inbound_rule.value.port_range
+      source_addresses = local.webhook_ingress_addresses
+    }
   }
 
-  # HTTP/HTTPS (for webhook endpoints via Tailscale Funnel)
-  inbound_rule {
-    protocol         = "tcp"
-    port_range       = "80"
-    source_addresses = ["0.0.0.0/0", "::/0"]
-  }
+  dynamic "outbound_rule" {
+    for_each = length(local.egress_addresses) > 0 ? local.egress_rules : []
 
-  inbound_rule {
-    protocol         = "tcp"
-    port_range       = "443"
-    source_addresses = ["0.0.0.0/0", "::/0"]
-  }
-
-  # Tailscale UDP
-  inbound_rule {
-    protocol         = "udp"
-    port_range       = "41641"
-    source_addresses = ["0.0.0.0/0", "::/0"]
-  }
-
-  # Gateway ports (8081-8090 for up to 10 agents)
-  inbound_rule {
-    protocol         = "tcp"
-    port_range       = "8081-8090"
-    source_addresses = ["0.0.0.0/0", "::/0"]
-  }
-
-  # Allow all outbound
-  outbound_rule {
-    protocol              = "tcp"
-    port_range            = "1-65535"
-    destination_addresses = ["0.0.0.0/0", "::/0"]
-  }
-
-  outbound_rule {
-    protocol              = "udp"
-    port_range            = "1-65535"
-    destination_addresses = ["0.0.0.0/0", "::/0"]
-  }
-
-  outbound_rule {
-    protocol              = "icmp"
-    destination_addresses = ["0.0.0.0/0", "::/0"]
+    content {
+      protocol              = outbound_rule.value.protocol
+      port_range            = try(outbound_rule.value.port_range, null)
+      destination_addresses = local.egress_addresses
+    }
   }
 }
 
