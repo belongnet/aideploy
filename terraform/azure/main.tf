@@ -39,11 +39,37 @@ variable "subscription_id" {
   default = ""
 }
 
+variable "webhook_ingress_ipv4_cidrs" {
+  type    = list(string)
+  default = ["0.0.0.0/0"]
+}
+
+variable "webhook_ingress_ipv6_cidrs" {
+  type    = list(string)
+  default = []
+}
+
+variable "egress_ipv4_cidrs" {
+  type    = list(string)
+  default = ["0.0.0.0/0"]
+}
+
+variable "egress_ipv6_cidrs" {
+  type    = list(string)
+  default = []
+}
+
 provider "azurerm" {
   features {}
-  subscription_id          = var.subscription_id
-  use_oidc                 = false
+  subscription_id            = var.subscription_id
+  use_oidc                   = false
   skip_provider_registration = true
+}
+
+locals {
+  webhook_ingress_cidrs = concat(var.webhook_ingress_ipv4_cidrs, var.webhook_ingress_ipv6_cidrs)
+  egress_cidrs          = concat(var.egress_ipv4_cidrs, var.egress_ipv6_cidrs)
+  egress_cidrs_by_rule  = { for index, cidr in local.egress_cidrs : index => cidr }
 }
 
 # Resource group
@@ -88,62 +114,46 @@ resource "azurerm_network_security_group" "openclaw" {
   location            = azurerm_resource_group.openclaw.location
   resource_group_name = azurerm_resource_group.openclaw.name
 
-  security_rule {
-    name                       = "SSH"
-    priority                   = 1001
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "Tcp"
-    source_port_range          = "*"
-    destination_port_range     = "22"
-    source_address_prefix      = "*"
-    destination_address_prefix = "*"
+  dynamic "security_rule" {
+    for_each = length(local.webhook_ingress_cidrs) > 0 ? [1] : []
+
+    content {
+      name                       = "WebhookIngress"
+      priority                   = 1001
+      direction                  = "Inbound"
+      access                     = "Allow"
+      protocol                   = "Tcp"
+      source_port_range          = "*"
+      destination_port_ranges    = ["443"]
+      source_address_prefixes    = local.webhook_ingress_cidrs
+      destination_address_prefix = "*"
+    }
+  }
+
+  dynamic "security_rule" {
+    for_each = local.egress_cidrs_by_rule
+
+    content {
+      name                       = "Egress${tonumber(security_rule.key) + 1}"
+      priority                   = 1100 + tonumber(security_rule.key)
+      direction                  = "Outbound"
+      access                     = "Allow"
+      protocol                   = "*"
+      source_port_range          = "*"
+      destination_port_range     = "*"
+      source_address_prefix      = "*"
+      destination_address_prefix = security_rule.value
+    }
   }
 
   security_rule {
-    name                       = "HTTP"
-    priority                   = 1002
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "Tcp"
+    name                       = "DenyAllOutbound"
+    priority                   = 4096
+    direction                  = "Outbound"
+    access                     = "Deny"
+    protocol                   = "*"
     source_port_range          = "*"
-    destination_port_range     = "80"
-    source_address_prefix      = "*"
-    destination_address_prefix = "*"
-  }
-
-  security_rule {
-    name                       = "HTTPS"
-    priority                   = 1003
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "Tcp"
-    source_port_range          = "*"
-    destination_port_range     = "443"
-    source_address_prefix      = "*"
-    destination_address_prefix = "*"
-  }
-
-  security_rule {
-    name                       = "Tailscale"
-    priority                   = 1004
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "Udp"
-    source_port_range          = "*"
-    destination_port_range     = "41641"
-    source_address_prefix      = "*"
-    destination_address_prefix = "*"
-  }
-
-  security_rule {
-    name                       = "Gateways"
-    priority                   = 1005
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "Tcp"
-    source_port_range          = "*"
-    destination_port_range     = "8081-8090"
+    destination_port_range     = "*"
     source_address_prefix      = "*"
     destination_address_prefix = "*"
   }

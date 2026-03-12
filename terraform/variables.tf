@@ -78,7 +78,7 @@ variable "agent_configs" {
     auth_method    = string
     api_key        = optional(string, "")
     model          = optional(string, "")
-    channels       = optional(list(object({
+    channels = optional(list(object({
       type  = string
       token = string
     })), [])
@@ -106,4 +106,28 @@ variable "domain" {
   description = "Optional custom domain"
   type        = string
   default     = ""
+}
+
+variable "webhook_ingress_ipv4_cidrs" {
+  description = "IPv4 CIDR blocks allowed to reach the optional public HTTPS webhook ingress; leave empty to disable public ingress"
+  type        = list(string)
+  default     = []
+}
+
+variable "webhook_ingress_ipv6_cidrs" {
+  description = "IPv6 CIDR blocks allowed to reach the optional public HTTPS webhook ingress; leave empty to disable public ingress"
+  type        = list(string)
+  default     = []
+}
+
+variable "egress_ipv4_cidrs" {
+  description = "IPv4 CIDR blocks allowed for outbound traffic"
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
+variable "egress_ipv6_cidrs" {
+  description = "IPv6 CIDR blocks allowed for outbound traffic"
+  type        = list(string)
+  default     = []
 }

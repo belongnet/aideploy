@@ -39,10 +39,42 @@ variable "ssh_key" {
   default = ""
 }
 
+variable "webhook_ingress_ipv4_cidrs" {
+  type    = list(string)
+  default = ["0.0.0.0/0"]
+}
+
+variable "webhook_ingress_ipv6_cidrs" {
+  type    = list(string)
+  default = []
+}
+
+variable "egress_ipv4_cidrs" {
+  type    = list(string)
+  default = ["0.0.0.0/0"]
+}
+
+variable "egress_ipv6_cidrs" {
+  type    = list(string)
+  default = []
+}
+
 provider "aws" {
   region     = var.region
   access_key = split(":", var.access_key)[0]
   secret_key = split(":", var.access_key)[1]
+}
+
+locals {
+  webhook_ingress_enabled = length(var.webhook_ingress_ipv4_cidrs) + length(var.webhook_ingress_ipv6_cidrs) > 0
+  egress_enabled          = length(var.egress_ipv4_cidrs) + length(var.egress_ipv6_cidrs) > 0
+  webhook_ingress_rules = [
+    {
+      from_port = 443
+      to_port   = 443
+      protocol  = "tcp"
+    },
+  ]
 }
 
 # Look up latest Ubuntu 24.04 AMI
@@ -66,51 +98,28 @@ resource "aws_security_group" "openclaw" {
   name_prefix = "openclaw-${var.deploy_id}-"
   description = "OpenClaw Agent Launcher security group"
 
-  # SSH
-  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+  dynamic "ingress" {
+    for_each = local.webhook_ingress_enabled ? local.webhook_ingress_rules : []
+
+    content {
+      from_port        = ingress.value.from_port
+      to_port          = ingress.value.to_port
+      protocol         = ingress.value.protocol
+      cidr_blocks      = var.webhook_ingress_ipv4_cidrs
+      ipv6_cidr_blocks = var.webhook_ingress_ipv6_cidrs
+    }
   }
 
-  # HTTP/HTTPS
-  ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+  dynamic "egress" {
+    for_each = local.egress_enabled ? [1] : []
 
-  ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  # Tailscale
-  ingress {
-    from_port   = 41641
-    to_port     = 41641
-    protocol    = "udp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  # Gateway ports
-  ingress {
-    from_port   = 8081
-    to_port     = 8090
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  # All outbound
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    content {
+      from_port        = 0
+      to_port          = 0
+      protocol         = "-1"
+      cidr_blocks      = var.egress_ipv4_cidrs
+      ipv6_cidr_blocks = var.egress_ipv6_cidrs
+    }
   }
 
   tags = {

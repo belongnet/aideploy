@@ -39,29 +39,110 @@ variable "project_id" {
   default = ""
 }
 
+variable "webhook_ingress_ipv4_cidrs" {
+  type    = list(string)
+  default = ["0.0.0.0/0"]
+}
+
+variable "webhook_ingress_ipv6_cidrs" {
+  type    = list(string)
+  default = []
+}
+
+variable "egress_ipv4_cidrs" {
+  type    = list(string)
+  default = ["0.0.0.0/0"]
+}
+
+variable "egress_ipv6_cidrs" {
+  type    = list(string)
+  default = []
+}
+
 provider "google" {
   access_token = var.token
   project      = var.project_id
   zone         = var.zone
 }
 
+locals {
+  webhook_ingress_cidrs = concat(var.webhook_ingress_ipv4_cidrs, var.webhook_ingress_ipv6_cidrs)
+  egress_cidrs          = concat(var.egress_ipv4_cidrs, var.egress_ipv6_cidrs)
+}
+
 # Firewall rules
-resource "google_compute_firewall" "openclaw" {
-  name    = "openclaw-${var.deploy_id}"
+resource "google_compute_firewall" "openclaw_webhooks" {
+  count   = length(local.webhook_ingress_cidrs) > 0 ? 1 : 0
+  name    = "openclaw-webhooks-${var.deploy_id}"
   network = "default"
 
   allow {
     protocol = "tcp"
-    ports    = ["22", "80", "443", "8081-8090"]
+    ports    = ["443"]
+  }
+
+  source_ranges = local.webhook_ingress_cidrs
+  target_tags   = ["openclaw"]
+}
+
+resource "google_compute_firewall" "openclaw_egress" {
+  count     = length(local.egress_cidrs) > 0 ? 1 : 0
+  name      = "openclaw-egress-${var.deploy_id}"
+  network   = "default"
+  direction = "EGRESS"
+
+  allow {
+    protocol = "tcp"
   }
 
   allow {
     protocol = "udp"
-    ports    = ["41641"]
   }
 
-  source_ranges = ["0.0.0.0/0"]
-  target_tags   = ["openclaw"]
+  allow {
+    protocol = "icmp"
+  }
+
+  destination_ranges = local.egress_cidrs
+  target_tags        = ["openclaw"]
+}
+
+resource "google_compute_firewall" "openclaw_egress_deny" {
+  name      = "openclaw-egress-deny-${var.deploy_id}"
+  network   = "default"
+  direction = "EGRESS"
+  priority  = 65534
+
+  deny {
+    protocol = "tcp"
+  }
+
+  deny {
+    protocol = "udp"
+  }
+
+  deny {
+    protocol = "icmp"
+  }
+
+  deny {
+    protocol = "esp"
+  }
+
+  deny {
+    protocol = "ah"
+  }
+
+  deny {
+    protocol = "sctp"
+  }
+
+  deny {
+    protocol = "ipip"
+  }
+
+  destination_ranges = ["0.0.0.0/0"]
+  target_tags        = ["openclaw"]
 }
 
 # Compute instance
