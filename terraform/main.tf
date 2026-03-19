@@ -54,7 +54,7 @@ locals {
 
   # Azure sizes
   azure_sizes = {
-    starter = "Standard_B1ms"
+    starter = "Standard_B2s"
     growing = "Standard_B2s"
     power   = "Standard_B2ms"
   }
