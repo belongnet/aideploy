@@ -5,28 +5,7 @@
 ## Variables: deploy_id, db_password, encryption_key, agent_count, agents[]
 ##
 
-version: "3.9"
-
 services:
-  # ── Database ──────────────────────────────────────────────────
-  db:
-    build: ./db
-    container_name: openclaw-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: openclaw
-      POSTGRES_USER: openclaw
-      POSTGRES_PASSWORD: "{{db_password}}"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    networks:
-      - openclaw
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U openclaw -d openclaw"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   # ── Master Dashboard ──────────────────────────────────────────
   master-dashboard:
     build: ./master-dashboard
@@ -36,14 +15,14 @@ services:
       - "3000:3000"
     environment:
       PORT: "3000"
-      DATABASE_URL: "postgresql://openclaw:{{db_password}}@db:5432/openclaw"
-      AGENT_COUNT: "{{agent_count}}"
-      DEPLOY_ID: "{{deploy_id}}"
-    depends_on:
-      db:
-        condition: service_healthy
+      DATABASE_URL: "postgresql://postgres:${DB_PASSWORD:?DB_PASSWORD is required}@${DB_HOST:-supabase-db}:${DB_PORT:-5432}/postgres"
+      AGENT_COUNT: "${AGENT_COUNT:?AGENT_COUNT is required}"
+      DEPLOY_ID: "${DEPLOY_ID:?DEPLOY_ID is required}"
+      AGENT_SERVICE_TOKEN: "${AGENT_SERVICE_TOKEN:?AGENT_SERVICE_TOKEN is required}"
+      AGENT_INTERNAL_HOST_TEMPLATE: "agent-{index0}"
     networks:
       - openclaw
+      - supabase
 
   # ── Per-Agent Services ────────────────────────────────────────
   {{#each agents}}
@@ -51,21 +30,19 @@ services:
     build: ./agent
     container_name: openclaw-agent-{{this.index}}
     restart: unless-stopped
-    ports:
-      - "{{this.agent_port}}:{{this.agent_port}}"
     environment:
       AGENT_INDEX: "{{this.index}}"
       AGENT_SCHEMA: "{{this.schema_name}}"
       AGENT_PORT: "{{this.agent_port}}"
-      DATABASE_URL: "postgresql://openclaw:{{../db_password}}@db:5432/openclaw"
-      DB_PASSWORD: "{{../db_password}}"
-      ENCRYPTION_KEY: "{{../encryption_key}}"
-      DEPLOY_ID: "{{../deploy_id}}"
-    depends_on:
-      db:
-        condition: service_healthy
+      DATABASE_URL: "postgresql://postgres:${DB_PASSWORD:?DB_PASSWORD is required}@${DB_HOST:-supabase-db}:${DB_PORT:-5432}/postgres"
+      DB_PASSWORD: "${DB_PASSWORD:?DB_PASSWORD is required}"
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
+      DEPLOY_ID: "${DEPLOY_ID:?DEPLOY_ID is required}"
+      AGENT_SERVICE_TOKEN: "${AGENT_SERVICE_TOKEN:?AGENT_SERVICE_TOKEN is required}"
+      SUPABASE_JWT_SECRET: "${SUPABASE_JWT_SECRET:-}"
     networks:
       - openclaw
+      - supabase
 
   gateway-{{this.index}}:
     build: ./gateway
@@ -78,10 +55,13 @@ services:
       GATEWAY_PORT: "{{this.gateway_port}}"
       AGENT_URL: "http://agent-{{this.index}}:{{this.agent_port}}"
       DEPLOY_ID: "{{../deploy_id}}"
+      AGENT_SERVICE_TOKEN: "${AGENT_SERVICE_TOKEN:?AGENT_SERVICE_TOKEN is required}"
       TELEGRAM_BOT_TOKEN: "${CHANNEL_{{this.index}}_TELEGRAM_TOKEN:-}"
+      TELEGRAM_WEBHOOK_SECRET: "${CHANNEL_{{this.index}}_TELEGRAM_SECRET:-}"
       WHATSAPP_ACCESS_TOKEN: "${CHANNEL_{{this.index}}_WHATSAPP_TOKEN:-}"
       WHATSAPP_VERIFY_TOKEN: "openclaw-verify-{{../deploy_id}}"
       WHATSAPP_PHONE_NUMBER_ID: "${CHANNEL_{{this.index}}_WHATSAPP_PHONE_ID:-}"
+      WHATSAPP_APP_SECRET: "${CHANNEL_{{this.index}}_WHATSAPP_APP_SECRET:-}"
       SLACK_BOT_TOKEN: "${CHANNEL_{{this.index}}_SLACK_TOKEN:-}"
       SLACK_SIGNING_SECRET: "${CHANNEL_{{this.index}}_SLACK_SECRET:-}"
     depends_on:
@@ -98,19 +78,20 @@ services:
     environment:
       PORT: "{{this.dashboard_port}}"
       DASHBOARD_PORT: "{{this.dashboard_port}}"
-      AGENT_URL: "http://agent-{{this.index}}:{{this.agent_port}}"
       AGENT_INDEX: "{{this.index}}"
       AGENT_NAME: "{{this.name}}"
+      AGENT_HOST: "agent-{{this.index}}"
+      AGENT_PORT: "{{this.agent_port}}"
+      AGENT_SERVICE_TOKEN: "${AGENT_SERVICE_TOKEN:?AGENT_SERVICE_TOKEN is required}"
     depends_on:
       - agent-{{this.index}}
     networks:
       - openclaw
   {{/each}}
 
-volumes:
-  pgdata:
-    driver: local
-
 networks:
   openclaw:
     driver: bridge
+  supabase:
+    external: true
+    name: supabase_default

@@ -36,6 +36,13 @@ export interface AgentConfig {
   prune_enabled: boolean;
   prune_after_days: number;
   prune_keep_starred: boolean;
+  memory_enabled: boolean;
+  memory_provider: "supabase" | "mem0" | "none";
+  memory_capture_mode: "async" | "off";
+  memory_recall_top_k: number;
+  memory_similarity_threshold: number;
+  knowledge_provider: "none" | "qmd";
+  knowledge_collections: string[];
 }
 
 /** Minimal channel info shown on agent cards */

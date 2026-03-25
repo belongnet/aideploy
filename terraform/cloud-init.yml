@@ -1,7 +1,10 @@
 #cloud-config
 # ──────────────────────────────────────────────────────────────
-# OpenClaw Agent Launcher — Cloud-Init
-# Bootstraps Docker, Tailscale, and the agent stack on first boot
+# OpenClaw Agent Launcher — Cloud-Init (REFERENCE ONLY)
+#
+# NOTE: The actual cloud-init is generated dynamically by
+# provisioner/src/deployer.ts:generateCloudInit().
+# This file is kept for documentation and manual debugging.
 # ──────────────────────────────────────────────────────────────
 
 package_update: true
@@ -75,13 +78,17 @@ write_files:
       # via SCP/rsync after cloud-init completes basic setup
 
       # Write environment file
-      cat > /opt/openclaw/.env <<ENVEOF
+      umask 077
+      cat > /opt/openclaw/runtime-secrets.env <<ENVEOF
       DEPLOY_ID=$DEPLOY_ID
       DB_PASSWORD=$DB_PASSWORD
       ENCRYPTION_KEY=$ENCRYPTION_KEY
+      AGENT_SERVICE_TOKEN=$ENCRYPTION_KEY
+      SUPABASE_JWT_SECRET=$ENCRYPTION_KEY
       TAILSCALE_IP=$TS_IP
       AGENT_COUNT=$AGENT_COUNT
       ENVEOF
+      chmod 600 /opt/openclaw/runtime-secrets.env
 
       # Signal readiness
       echo "[openclaw] Cloud-init complete, waiting for stack deployment"
@@ -94,7 +101,14 @@ write_files:
       set -euo pipefail
 
       cd /opt/openclaw/stack
-      source /opt/openclaw/.env
+      set -a
+      source /opt/openclaw/runtime-secrets.env
+      set +a
+      : "${DEPLOY_ID:?DEPLOY_ID is required}"
+      : "${DB_PASSWORD:?DB_PASSWORD is required}"
+      : "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
+      : "${AGENT_SERVICE_TOKEN:?AGENT_SERVICE_TOKEN is required}"
+      : "${AGENT_COUNT:?AGENT_COUNT is required}"
 
       echo "[openclaw] Starting Docker Compose stack..."
       docker compose up -d --build

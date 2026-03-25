@@ -10,12 +10,16 @@ const nextConfig = {
    */
   async rewrites() {
     const agentPort = process.env.AGENT_PORT || "8101";
-    const agentHost = process.env.AGENT_HOST || "localhost";
+    const agentHost = process.env.AGENT_HOST || "agent-1";
+    const serviceToken = process.env.AGENT_SERVICE_TOKEN || "";
+    const authQuery = serviceToken
+      ? `?oc_service_token=${encodeURIComponent(serviceToken)}`
+      : "";
 
     return [
       {
         source: "/api/:path*",
-        destination: `http://${agentHost}:${agentPort}/api/:path*`,
+        destination: `http://${agentHost}:${agentPort}/api/:path*${authQuery}`,
       },
     ];
   },

@@ -1,0 +1,231 @@
+##
+## Supabase — Docker Compose deployment for AiDeploy runtimes.
+## Mirrors the Helm chart (supabase-community/supabase-kubernetes) for
+## environments where k3s is unavailable (macOS / Scaleway) or where a
+## simpler Docker-native stack is preferred.
+##
+## Profiles:
+##   default       — core services (db, auth, rest, realtime, storage)
+##   command_center — adds studio, kong, meta, functions
+##
+## Usage:
+##   docker compose up -d                             # core only
+##   docker compose --profile command_center up -d     # full suite
+##
+
+services:
+  # ── Postgres + pgvector ────────────────────────────────────────
+  supabase-db:
+    image: supabase/postgres:15.6.1.117
+    container_name: supabase-db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+      POSTGRES_DB: postgres
+    volumes:
+      - supabase-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - supabase
+
+  # ── Auth (GoTrue) ──────────────────────────────────────────────
+  supabase-auth:
+    image: supabase/gotrue:v2.158.1
+    container_name: supabase-auth
+    restart: unless-stopped
+    environment:
+      GOTRUE_API_HOST: "0.0.0.0"
+      GOTRUE_API_PORT: "9999"
+      API_EXTERNAL_URL: "http://localhost:9999"
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: "postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@supabase-db:5432/postgres"
+      GOTRUE_SITE_URL: "${SITE_URL:-http://localhost:3000}"
+      GOTRUE_URI_ALLOW_LIST: ""
+      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
+      GOTRUE_JWT_EXP: "3600"
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: "authenticated"
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      GOTRUE_MAILER_AUTOCONFIRM: "true"
+      GOTRUE_SMS_AUTOCONFIRM: "true"
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - supabase
+
+  # ── REST (PostgREST) ───────────────────────────────────────────
+  supabase-rest:
+    image: postgrest/postgrest:v12.2.3
+    container_name: supabase-rest
+    restart: unless-stopped
+    environment:
+      PGRST_DB_URI: "postgres://authenticator:${POSTGRES_PASSWORD}@supabase-db:5432/postgres"
+      PGRST_DB_SCHEMAS: "public,storage,graphql_public"
+      PGRST_DB_ANON_ROLE: "anon"
+      PGRST_JWT_SECRET: "${JWT_SECRET}"
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_APP_SETTINGS_JWT_SECRET: "${JWT_SECRET}"
+      PGRST_APP_SETTINGS_JWT_EXP: "3600"
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - supabase
+
+  # ── Realtime ───────────────────────────────────────────────────
+  supabase-realtime:
+    image: supabase/realtime:v2.30.34
+    container_name: supabase-realtime
+    restart: unless-stopped
+    environment:
+      PORT: "4000"
+      DB_HOST: supabase-db
+      DB_PORT: "5432"
+      DB_USER: supabase_admin
+      DB_PASSWORD: "${POSTGRES_PASSWORD}"
+      DB_NAME: postgres
+      DB_AFTER_CONNECT_QUERY: "SET search_path TO _realtime"
+      DB_ENC_KEY: "${JWT_SECRET}"
+      API_JWT_SECRET: "${JWT_SECRET}"
+      SECRET_KEY_BASE: "${JWT_SECRET}"
+      ERL_AFLAGS: "-proto_dist inet_tcp"
+      ENABLE_TAILSCALE: "false"
+      DNS_NODES: "''"
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - supabase
+
+  # ── Storage ────────────────────────────────────────────────────
+  supabase-storage:
+    image: supabase/storage-api:v1.11.13
+    container_name: supabase-storage
+    restart: unless-stopped
+    environment:
+      ANON_KEY: "${SUPABASE_ANON_KEY:?SUPABASE_ANON_KEY is required}"
+      SERVICE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:?SUPABASE_SERVICE_ROLE_KEY is required}"
+      POSTGREST_URL: "http://supabase-rest:3000"
+      PGRST_JWT_SECRET: "${JWT_SECRET}"
+      DATABASE_URL: "postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@supabase-db:5432/postgres"
+      FILE_SIZE_LIMIT: "52428800"
+      STORAGE_BACKEND: file
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      TENANT_ID: stub
+      REGION: stub
+      GLOBAL_S3_BUCKET: stub
+      ENABLE_IMAGE_TRANSFORMATION: "true"
+      IMGPROXY_URL: "http://localhost:5001"
+    volumes:
+      - supabase-storage:/var/lib/storage
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+      supabase-rest:
+        condition: service_started
+    networks:
+      - supabase
+
+  # ── Studio (Command Center profile) ────────────────────────────
+  supabase-studio:
+    image: supabase/studio:20240729-ce42139
+    container_name: supabase-studio
+    restart: unless-stopped
+    profiles: ["command_center"]
+    ports:
+      - "3100:3000"
+    environment:
+      STUDIO_PG_META_URL: "http://supabase-meta:8080"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      DEFAULT_ORGANIZATION_NAME: "AiDeploy"
+      DEFAULT_PROJECT_NAME: "OpenClaw"
+      SUPABASE_URL: "http://supabase-kong:8000"
+      SUPABASE_PUBLIC_URL: "${SUPABASE_PUBLIC_URL:-http://localhost:8000}"
+      SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY}"
+      SUPABASE_SERVICE_KEY: "${SUPABASE_SERVICE_ROLE_KEY}"
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - supabase
+
+  # ── Kong API Gateway (Command Center profile) ──────────────────
+  supabase-kong:
+    image: kong:2.8.1
+    container_name: supabase-kong
+    restart: unless-stopped
+    profiles: ["command_center"]
+    ports:
+      - "8000:8000"
+      - "8443:8443"
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
+      KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+      SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY}"
+      SUPABASE_SERVICE_KEY: "${SUPABASE_SERVICE_ROLE_KEY}"
+    volumes:
+      - ./kong.yml:/home/kong/kong.yml:ro
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - supabase
+
+  # ── Meta (pg-meta, Command Center profile) ─────────────────────
+  supabase-meta:
+    image: supabase/postgres-meta:v0.84.2
+    container_name: supabase-meta
+    restart: unless-stopped
+    profiles: ["command_center"]
+    environment:
+      PG_META_PORT: "8080"
+      PG_META_DB_HOST: supabase-db
+      PG_META_DB_PORT: "5432"
+      PG_META_DB_NAME: postgres
+      PG_META_DB_USER: postgres
+      PG_META_DB_PASSWORD: "${POSTGRES_PASSWORD}"
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - supabase
+
+  # ── Edge Functions (Command Center profile) ────────────────────
+  supabase-functions:
+    image: supabase/edge-runtime:v1.62.2
+    container_name: supabase-functions
+    restart: unless-stopped
+    profiles: ["command_center"]
+    environment:
+      JWT_SECRET: "${JWT_SECRET}"
+      SUPABASE_URL: "http://supabase-kong:8000"
+      SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY}"
+      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY}"
+      SUPABASE_DB_URL: "postgresql://postgres:${POSTGRES_PASSWORD}@supabase-db:5432/postgres"
+      VERIFY_JWT: "false"
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - supabase
+
+volumes:
+  supabase-pgdata:
+    driver: local
+  supabase-storage:
+    driver: local
+
+networks:
+  supabase:
+    driver: bridge

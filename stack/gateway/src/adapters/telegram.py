@@ -7,6 +7,7 @@ and sends responses back via the Telegram Bot API.
 
 from __future__ import annotations
 
+import hmac
 import logging
 from typing import Any
 
@@ -18,8 +19,9 @@ logger = logging.getLogger(__name__)
 class TelegramAdapter:
     """Processes Telegram webhook updates."""
 
-    def __init__(self, bot_token: str):
+    def __init__(self, bot_token: str, webhook_secret: str = ""):
         self.bot_token = bot_token
+        self.webhook_secret = webhook_secret.strip()
 
     def normalize(self, payload: dict[str, Any]) -> NormalizedMessage | None:
         """Convert Telegram update to normalized message."""
@@ -35,3 +37,11 @@ class TelegramAdapter:
                 or payload.get("callback_query")
             )
         )
+
+    def verify_secret_token(self, secret_token: str) -> bool:
+        """Validate Telegram's webhook secret token header when configured."""
+        if not self.webhook_secret:
+            return True
+        if not secret_token:
+            return False
+        return hmac.compare_digest(self.webhook_secret, secret_token)

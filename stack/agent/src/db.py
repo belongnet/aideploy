@@ -6,6 +6,7 @@ Async Postgres access via asyncpg with per-agent schema isolation.
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from datetime import datetime
 from typing import Any, Optional
@@ -17,6 +18,9 @@ from .models import (
     AnalyticsEvent,
     Channel,
     Conversation,
+    MemoryHit,
+    MemoryItem,
+    MemoryScope,
     Message,
     MessageRole,
     OAuthTokens,
@@ -34,7 +38,10 @@ class Database:
     @classmethod
     async def create(cls, dsn: str, schema: str) -> "Database":
         pool = await asyncpg.create_pool(dsn, min_size=2, max_size=10)
-        return cls(schema, pool)
+        db = cls(schema, pool)
+        await db.ensure_agent_schema()
+        await db.ensure_runtime_schema()
+        return db
 
     async def close(self) -> None:
         await self.pool.close()
@@ -43,9 +50,138 @@ class Database:
         """Qualify table name with agent schema."""
         return f"{self.schema}.{table}"
 
+    async def ensure_agent_schema(self) -> None:
+        agent_name = os.environ.get("AGENT_NAME", f"Agent {self.schema}")
+        dashboard_port = int(os.environ.get("DASHBOARD_PORT", "3001"))
+        gateway_port = int(os.environ.get("GATEWAY_PORT", "8081"))
+        agent_port = int(os.environ.get("AGENT_PORT", "8101"))
+        await self.pool.execute(
+            """
+            SELECT create_agent_schema($1, $2, uuid_generate_v4(), $3, $4, $5)
+            """,
+            self.schema,
+            agent_name,
+            dashboard_port,
+            gateway_port,
+            agent_port,
+        )
+
+    async def ensure_runtime_schema(self) -> None:
+        await self.pool.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"')
+        await self.pool.execute('CREATE EXTENSION IF NOT EXISTS "pgcrypto"')
+        await self.pool.execute("CREATE EXTENSION IF NOT EXISTS vector")
+
+        await self.pool.execute(
+            f"""
+            ALTER TABLE {self._t('agent_config')}
+                ADD COLUMN IF NOT EXISTS memory_enabled BOOLEAN NOT NULL DEFAULT true,
+                ADD COLUMN IF NOT EXISTS memory_provider TEXT NOT NULL DEFAULT 'supabase',
+                ADD COLUMN IF NOT EXISTS memory_capture_mode TEXT NOT NULL DEFAULT 'async',
+                ADD COLUMN IF NOT EXISTS memory_recall_top_k INT NOT NULL DEFAULT 5,
+                ADD COLUMN IF NOT EXISTS memory_similarity_threshold REAL NOT NULL DEFAULT 0.25,
+                ADD COLUMN IF NOT EXISTS knowledge_provider TEXT NOT NULL DEFAULT 'none',
+                ADD COLUMN IF NOT EXISTS knowledge_collections TEXT[] NOT NULL DEFAULT '{{}}'
+            """
+        )
+        await self.pool.execute(
+            f"""
+            UPDATE {self._t('agent_config')}
+            SET memory_provider = 'supabase'
+            WHERE memory_provider = 'postgres'
+            """
+        )
+        await self.pool.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS {self._t('memory_items')} (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                user_key TEXT NOT NULL,
+                scope TEXT NOT NULL DEFAULT 'long_term'
+                    CHECK (scope IN ('long_term', 'session')),
+                conversation_id UUID,
+                source_message_id UUID,
+                content TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                content_sha256 TEXT NOT NULL,
+                metadata JSONB NOT NULL DEFAULT '{{}}',
+                forgotten_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        await self.pool.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS {self._t('memory_embeddings')} (
+                memory_id UUID PRIMARY KEY REFERENCES {self._t('memory_items')}(id) ON DELETE CASCADE,
+                embedding vector(256) NOT NULL,
+                embedding_model TEXT NOT NULL DEFAULT 'hash-v1',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        await self.pool.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS {self._t('memory_capture_jobs')} (
+                id BIGSERIAL PRIMARY KEY,
+                user_key TEXT NOT NULL,
+                conversation_id UUID,
+                status TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'running', 'completed', 'skipped', 'failed')),
+                payload JSONB NOT NULL DEFAULT '{{}}',
+                memory_id UUID,
+                last_error TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        await self.pool.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS {self._t('memory_audit_log')} (
+                id BIGSERIAL PRIMARY KEY,
+                memory_id UUID,
+                action TEXT NOT NULL,
+                metadata JSONB NOT NULL DEFAULT '{{}}',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        await self.pool.execute(
+            f"""
+            CREATE INDEX IF NOT EXISTS idx_{self.schema}_memory_user
+            ON {self._t('memory_items')}(user_key, scope, created_at DESC)
+            """
+        )
+        await self.pool.execute(
+            f"""
+            CREATE INDEX IF NOT EXISTS idx_{self.schema}_memory_conversation
+            ON {self._t('memory_items')}(conversation_id, created_at DESC)
+            """
+        )
+        await self.pool.execute(
+            f"""
+            CREATE INDEX IF NOT EXISTS idx_{self.schema}_memory_jobs_status
+            ON {self._t('memory_capture_jobs')}(status, created_at DESC)
+            """
+        )
+        await self._ensure_config_row()
+
+    async def _ensure_config_row(self) -> None:
+        row = await self.pool.fetchrow(
+            f"SELECT id FROM {self._t('agent_config')} LIMIT 1"
+        )
+        if row:
+            return
+        await self.pool.execute(
+            f"""
+            INSERT INTO {self._t('agent_config')} DEFAULT VALUES
+            """
+        )
+
     # ── Agent Config ─────────────────────────────────────────
 
     async def get_config(self) -> AgentConfig:
+        await self._ensure_config_row()
         row = await self.pool.fetchrow(
             f"SELECT * FROM {self._t('agent_config')} LIMIT 1"
         )
@@ -54,6 +190,7 @@ class Database:
         return AgentConfig(**dict(row))
 
     async def update_config(self, **kwargs: Any) -> AgentConfig:
+        await self._ensure_config_row()
         sets = ", ".join(f"{k} = ${i+1}" for i, k in enumerate(kwargs.keys()))
         values = list(kwargs.values())
         await self.pool.execute(
@@ -416,6 +553,235 @@ class Database:
             )
         return [dict(r) for r in rows]
 
+    # ── Memory ───────────────────────────────────────────────
+
+    async def create_memory_capture_job(
+        self,
+        user_key: str,
+        conversation_id: Optional[uuid.UUID],
+        payload: dict[str, Any],
+    ) -> int:
+        return int(
+            await self.pool.fetchval(
+                f"""
+                INSERT INTO {self._t('memory_capture_jobs')}
+                    (user_key, conversation_id, payload)
+                VALUES ($1, $2, $3)
+                RETURNING id
+                """,
+                user_key,
+                conversation_id,
+                json.dumps(payload),
+            )
+        )
+
+    async def update_memory_capture_job(
+        self,
+        job_id: int,
+        status: str,
+        *,
+        memory_id: Optional[uuid.UUID] = None,
+        last_error: Optional[str] = None,
+    ) -> None:
+        await self.pool.execute(
+            f"""
+            UPDATE {self._t('memory_capture_jobs')}
+            SET status = $2,
+                memory_id = COALESCE($3, memory_id),
+                last_error = $4,
+                updated_at = NOW()
+            WHERE id = $1
+            """,
+            job_id,
+            status,
+            memory_id,
+            last_error,
+        )
+
+    async def add_memory_audit(
+        self,
+        action: str,
+        metadata: dict[str, Any],
+        memory_id: Optional[uuid.UUID] = None,
+    ) -> None:
+        await self.pool.execute(
+            f"""
+            INSERT INTO {self._t('memory_audit_log')} (memory_id, action, metadata)
+            VALUES ($1, $2, $3)
+            """,
+            memory_id,
+            action,
+            json.dumps(metadata),
+        )
+
+    async def find_memory_by_hash(
+        self,
+        user_key: str,
+        scope: MemoryScope,
+        content_sha256: str,
+    ) -> Optional[uuid.UUID]:
+        return await self.pool.fetchval(
+            f"""
+            SELECT id
+            FROM {self._t('memory_items')}
+            WHERE user_key = $1
+              AND scope = $2
+              AND content_sha256 = $3
+              AND forgotten_at IS NULL
+            LIMIT 1
+            """,
+            user_key,
+            scope.value,
+            content_sha256,
+        )
+
+    async def insert_memory(
+        self,
+        item: MemoryItem,
+        embedding_literal: str,
+        embedding_model: str = "hash-v1",
+    ) -> MemoryItem:
+        await self.pool.execute(
+            f"""
+            INSERT INTO {self._t('memory_items')}
+                (id, user_key, scope, conversation_id, source_message_id, content,
+                 summary, content_sha256, metadata)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            """,
+            item.id,
+            item.user_key,
+            item.scope.value,
+            item.conversation_id,
+            item.source_message_id,
+            item.content,
+            item.summary,
+            item.content_sha256,
+            json.dumps(item.metadata),
+        )
+        await self.pool.execute(
+            f"""
+            INSERT INTO {self._t('memory_embeddings')}
+                (memory_id, embedding, embedding_model)
+            VALUES ($1, $2::vector, $3)
+            """,
+            item.id,
+            embedding_literal,
+            embedding_model,
+        )
+        await self.add_memory_audit(
+            "captured",
+            {
+                "user_key": item.user_key,
+                "scope": item.scope.value,
+                "conversation_id": str(item.conversation_id)
+                if item.conversation_id
+                else None,
+            },
+            memory_id=item.id,
+        )
+        return item
+
+    async def search_memories(
+        self,
+        user_key: str,
+        embedding_literal: str,
+        limit: int,
+        threshold: float,
+    ) -> list[MemoryHit]:
+        rows = await self.pool.fetch(
+            f"""
+            SELECT
+                mi.*,
+                1 - (me.embedding <=> $2::vector) AS similarity
+            FROM {self._t('memory_items')} mi
+            JOIN {self._t('memory_embeddings')} me
+              ON me.memory_id = mi.id
+            WHERE mi.user_key = $1
+              AND mi.forgotten_at IS NULL
+              AND 1 - (me.embedding <=> $2::vector) >= $3
+            ORDER BY me.embedding <=> $2::vector ASC
+            LIMIT $4
+            """,
+            user_key,
+            embedding_literal,
+            threshold,
+            limit,
+        )
+        return [MemoryHit(**dict(r)) for r in rows]
+
+    async def list_memories(
+        self,
+        user_key: str,
+        scope: Optional[str] = None,
+        limit: int = 50,
+    ) -> list[MemoryItem]:
+        clauses = ["user_key = $1", "forgotten_at IS NULL"]
+        params: list[Any] = [user_key]
+        if scope and scope != "all":
+            clauses.append("scope = $2")
+            params.append(scope)
+            limit_param = 3
+        else:
+            limit_param = 2
+        params.append(limit)
+        rows = await self.pool.fetch(
+            f"""
+            SELECT *
+            FROM {self._t('memory_items')}
+            WHERE {' AND '.join(clauses)}
+            ORDER BY created_at DESC
+            LIMIT ${limit_param}
+            """,
+            *params,
+        )
+        return [MemoryItem(**dict(r)) for r in rows]
+
+    async def forget_memories(
+        self,
+        user_key: str,
+        *,
+        memory_ids: Optional[list[uuid.UUID]] = None,
+        query: Optional[str] = None,
+    ) -> int:
+        if memory_ids:
+            result = await self.pool.execute(
+                f"""
+                UPDATE {self._t('memory_items')}
+                SET forgotten_at = NOW(), updated_at = NOW()
+                WHERE user_key = $1
+                  AND id = ANY($2::uuid[])
+                  AND forgotten_at IS NULL
+                """,
+                user_key,
+                memory_ids,
+            )
+        elif query:
+            result = await self.pool.execute(
+                f"""
+                UPDATE {self._t('memory_items')}
+                SET forgotten_at = NOW(), updated_at = NOW()
+                WHERE user_key = $1
+                  AND forgotten_at IS NULL
+                  AND (content ILIKE $2 OR summary ILIKE $2)
+                """,
+                user_key,
+                f"%{query}%",
+            )
+        else:
+            return 0
+
+        count = int(result.split()[-1]) if result.startswith("UPDATE ") else 0
+        await self.add_memory_audit(
+            "forgotten",
+            {
+                "user_key": user_key,
+                "memory_ids": [str(memory_id) for memory_id in memory_ids or []],
+                "query": query,
+                "count": count,
+            },
+        )
+        return count
+
     # ── Pruning ──────────────────────────────────────────────
 
     async def prune_conversations(
@@ -464,10 +830,17 @@ class Database:
         task_count = await self.pool.fetchval(
             f"SELECT COUNT(*) FROM {self._t('tasks')} WHERE enabled = true"
         )
+        memory_count = await self.pool.fetchval(
+            f"""
+            SELECT COUNT(*) FROM {self._t('memory_items')}
+            WHERE forgotten_at IS NULL
+            """
+        )
         return {
             "conversations": conv_count or 0,
             "messages": msg_count or 0,
             "messages_today": msg_today or 0,
             "active_channels": channel_count or 0,
             "active_tasks": task_count or 0,
+            "memories": memory_count or 0,
         }

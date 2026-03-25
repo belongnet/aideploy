@@ -14,6 +14,17 @@ import { NextResponse } from "next/server";
 import type { OverviewStats, DeployInfo } from "@/lib/types";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgresql://openclaw:openclaw@localhost:5432/openclaw";
+const AGENT_SERVICE_TOKEN = process.env.AGENT_SERVICE_TOKEN ?? "";
+const AGENT_INTERNAL_HOST_TEMPLATE =
+  process.env.AGENT_INTERNAL_HOST_TEMPLATE ?? "agent-{index1}";
+
+function resolveAgentInternalHost(port: number): string {
+  const index0 = Math.max(0, port - 8101);
+  const index1 = index0 + 1;
+  return AGENT_INTERNAL_HOST_TEMPLATE
+    .replace("{index0}", String(index0))
+    .replace("{index1}", String(index1));
+}
 
 /* ------------------------------------------------------------------ */
 /*  Database helper (same pattern as agents route)                      */
@@ -124,9 +135,17 @@ async function fetchStats(): Promise<OverviewStats> {
         try {
           const controller = new AbortController();
           const timeout = setTimeout(() => controller.abort(), 2000);
-          const res = await fetch(`http://localhost:${agent_port}/health`, {
-            signal: controller.signal,
-          });
+          const headers: HeadersInit = {};
+          if (AGENT_SERVICE_TOKEN) {
+            headers["X-OpenClaw-Service-Token"] = AGENT_SERVICE_TOKEN;
+          }
+          const res = await fetch(
+            `http://${resolveAgentInternalHost(agent_port)}:${agent_port}/health`,
+            {
+              signal: controller.signal,
+              headers,
+            }
+          );
           clearTimeout(timeout);
           return res.ok;
         } catch {

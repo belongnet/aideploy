@@ -158,6 +158,30 @@ export default function AgentDetailPage() {
             <Row label="Auth Method" value={config?.auth_method === "oauth" ? "Sign-in (OAuth)" : "API Key"} />
             <Row label="Temperature" value={String(config?.temperature ?? 0.7)} />
             <Row label="Max Tokens" value={String(config?.max_tokens ?? 4096)} />
+            <Row
+              label="Memory"
+              value={
+                config?.memory_enabled
+                  ? `${config.memory_provider === "supabase" ? "Supabase pgvector" : config.memory_provider === "mem0" ? "Mem0 Cloud" : config.memory_provider}, ${config.memory_capture_mode === "async" ? "background" : "off"}`
+                  : "Disabled"
+              }
+            />
+            <Row
+              label="Recall"
+              value={
+                config?.memory_enabled
+                  ? `Top ${config.memory_recall_top_k} results (threshold ${config.memory_similarity_threshold})`
+                  : "-"
+              }
+            />
+            <Row
+              label="Knowledge"
+              value={
+                config?.knowledge_provider === "qmd"
+                  ? `Local documents${config.knowledge_collections.length ? ` (${config.knowledge_collections.join(", ")})` : ""}`
+                  : "Off"
+              }
+            />
           </dl>
         </div>
 

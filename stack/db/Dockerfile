@@ -1,9 +1,10 @@
-FROM postgres:16-alpine
+FROM pgvector/pgvector:pg16
 
 # Copy initialization scripts (run in alphabetical order)
 COPY init.sql /docker-entrypoint-initdb.d/01-init.sql
 COPY bus_trigger.sql /docker-entrypoint-initdb.d/02-bus_trigger.sql
 COPY seed.sql /docker-entrypoint-initdb.d/03-seed.sql
+COPY 04-memory.sql /docker-entrypoint-initdb.d/04-memory.sql
 
 ENV POSTGRES_DB=openclaw
 ENV POSTGRES_USER=openclaw

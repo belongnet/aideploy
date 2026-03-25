@@ -6,6 +6,8 @@ Handles WhatsApp Cloud API webhooks and verification challenges.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 from typing import Any
 
@@ -17,10 +19,17 @@ logger = logging.getLogger(__name__)
 class WhatsAppAdapter:
     """Processes WhatsApp Cloud API webhooks."""
 
-    def __init__(self, access_token: str, verify_token: str, phone_number_id: str):
+    def __init__(
+        self,
+        access_token: str,
+        verify_token: str,
+        phone_number_id: str,
+        app_secret: str = "",
+    ):
         self.access_token = access_token
         self.verify_token = verify_token
         self.phone_number_id = phone_number_id
+        self.app_secret = app_secret.strip()
 
     def normalize(self, payload: dict[str, Any]) -> NormalizedMessage | None:
         """Convert WhatsApp webhook to normalized message."""
@@ -45,3 +54,17 @@ class WhatsAppAdapter:
             return False
         value = changes[0].get("value", {})
         return bool(value.get("messages"))
+
+    def verify_signature(self, body: bytes, signature_header: str) -> bool:
+        """Validate WhatsApp's X-Hub-Signature-256 header when configured."""
+        if not self.app_secret:
+            return True
+        if not signature_header.startswith("sha256="):
+            return False
+        expected = hmac.new(
+            self.app_secret.encode("utf-8"),
+            body,
+            hashlib.sha256,
+        ).hexdigest()
+        provided = signature_header.split("=", 1)[1].strip()
+        return hmac.compare_digest(expected, provided)

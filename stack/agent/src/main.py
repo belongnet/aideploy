@@ -8,6 +8,7 @@ receiving messages from the gateway and serving the dashboard API.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -21,11 +22,15 @@ from typing import Any
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse
 
+from .auth import authenticate_request, parse_allowed_origins
 from .bus_client import BusClient
 from .db import Database
+from .knowledge import build_knowledge_prompt, create_knowledge_provider
 from .llm_client import LLMAdapter, create_llm_adapter
+from .memory import build_memory_prompt, create_memory_provider, resolve_user_key
 from .models import (
     ActionType,
     AnalyticsEvent,
@@ -36,9 +41,13 @@ from .models import (
     ChannelType,
     Conversation,
     IncomingMessage,
+    KnowledgeHit,
     Message,
     MessageRole,
+    MemoryHit,
+    MemoryItem,
     Task,
+    TurnContext,
     TriggerType,
 )
 from .prune_job import BusCleanupJob, PruneJob
@@ -58,7 +67,10 @@ AGENT_SCHEMA = os.environ.get("AGENT_SCHEMA", f"agent_{AGENT_INDEX + 1}")
 AGENT_PORT = int(os.environ.get("AGENT_PORT", str(8101 + AGENT_INDEX)))
 DB_DSN = os.environ.get(
     "DATABASE_URL",
-    f"postgresql://openclaw:{os.environ.get('DB_PASSWORD', 'openclaw')}@db:5432/openclaw",
+    f"postgresql://postgres:{os.environ.get('DB_PASSWORD', 'openclaw')}@{os.environ.get('DB_HOST', 'supabase-db')}:{os.environ.get('DB_PORT', '5432')}/postgres",
+)
+ALLOWED_ORIGINS = parse_allowed_origins(
+    os.environ.get("OPENCLAW_ALLOWED_ORIGINS")
 )
 
 # ── Global State ──────────────────────────────────────────────
@@ -69,6 +81,8 @@ bus: BusClient
 task_engine: TaskEngine
 prune_job: PruneJob
 agent_id: uuid.UUID
+memory_provider: Any
+knowledge_provider: Any
 
 
 # ── Lifespan ──────────────────────────────────────────────────
@@ -76,7 +90,7 @@ agent_id: uuid.UUID
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global db, llm, bus, task_engine, prune_job, agent_id
+    global db, llm, bus, task_engine, prune_job, agent_id, memory_provider, knowledge_provider
 
     logger.info(f"Starting agent (schema: {AGENT_SCHEMA}, port: {AGENT_PORT})")
 
@@ -100,6 +114,8 @@ async def lifespan(app: FastAPI):
 
     # LLM client
     llm = create_llm_adapter(db, config)
+    memory_provider = create_memory_provider(db, config)
+    knowledge_provider = create_knowledge_provider(config)
 
     # Bus client
     bus = BusClient(DB_DSN, agent_id)
@@ -144,14 +160,59 @@ app = FastAPI(title="OpenClaw Agent", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
+@app.middleware("http")
+async def require_agent_auth(request: Request, call_next):
+    path = request.url.path
+    if request.method == "OPTIONS" or path == "/health":
+        return await call_next(request)
+    if path == "/message" or path.startswith("/api/"):
+        authorized, reason = authenticate_request(request)
+        if not authorized:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": reason},
+            )
+    return await call_next(request)
+
+
 # ── Message Processing Pipeline ──────────────────────────────
+
+
+def _log_task_result(task: asyncio.Task[Any], label: str) -> None:
+    try:
+        task.result()
+    except Exception as exc:
+        logger.warning("%s failed in background: %s", label, exc)
+
+
+async def _recall_memory(
+    config: Any, user_key: str, incoming: IncomingMessage
+) -> list[MemoryHit]:
+    if not config.memory_enabled:
+        return []
+    return await memory_provider.recall(
+        user_key=user_key,
+        agent_id=agent_id,
+        query=incoming.text,
+        limit=config.memory_recall_top_k,
+    )
+
+
+async def _search_knowledge(config: Any, query: str) -> list[KnowledgeHit]:
+    if not query.strip():
+        return []
+    return await knowledge_provider.search(
+        query=query,
+        scope="local",
+        limit=max(1, min(config.memory_recall_top_k, 5)),
+    )
 
 
 async def process_message(incoming: IncomingMessage) -> str:
@@ -202,6 +263,7 @@ async def process_message(incoming: IncomingMessage) -> str:
         metadata={
             "sender_name": incoming.sender_name,
             "channel_type": incoming.channel_type.value,
+            **incoming.metadata,
         },
     )
     await db.add_message(user_msg)
@@ -216,10 +278,26 @@ async def process_message(incoming: IncomingMessage) -> str:
 
     # Step 5: Build conversation context
     config = await db.get_config()
+    user_key = resolve_user_key(
+        incoming.metadata,
+        incoming.channel_type.value,
+        incoming.chat_id,
+    )
     history = await db.get_messages(conv.id, limit=20)
     messages: list[dict[str, str]] = [
         {"role": "system", "content": config.system_prompt}
     ]
+
+    memory_hits = await _recall_memory(config, user_key, incoming)
+    memory_prompt = build_memory_prompt(memory_hits)
+    if memory_prompt:
+        messages.append({"role": "system", "content": memory_prompt})
+
+    knowledge_hits = await _search_knowledge(config, incoming.text)
+    knowledge_prompt = build_knowledge_prompt(knowledge_hits)
+    if knowledge_prompt:
+        messages.append({"role": "system", "content": knowledge_prompt})
+
     for msg in history:
         messages.append({"role": msg.role.value, "content": msg.content})
 
@@ -239,8 +317,41 @@ async def process_message(incoming: IncomingMessage) -> str:
         role=MessageRole.ASSISTANT,
         content=response_text,
         tokens_used=tokens_used,
+        metadata={
+            "user_key": user_key,
+            "memory_hits": len(memory_hits),
+            "knowledge_hits": len(knowledge_hits),
+        },
     )
     await db.add_message(assistant_msg)
+
+    if (
+        config.memory_enabled
+        and config.memory_capture_mode.value == "async"
+    ):
+        capture_task = asyncio.create_task(
+            memory_provider.capture(
+                TurnContext(
+                    user_key=user_key,
+                    agent_id=agent_id,
+                    conversation_id=conv.id,
+                    user_message_id=user_msg.id,
+                    assistant_message_id=assistant_msg.id,
+                    user_text=incoming.text,
+                    assistant_text=response_text,
+                    metadata={
+                        "channel_type": incoming.channel_type.value,
+                        "chat_id": incoming.chat_id,
+                        "sender_name": incoming.sender_name,
+                        "memory_hits": len(memory_hits),
+                        "knowledge_hits": len(knowledge_hits),
+                    },
+                )
+            )
+        )
+        capture_task.add_done_callback(
+            lambda task: _log_task_result(task, "memory_capture")
+        )
 
     # Step 8: Log analytics
     await db.log_event(
@@ -251,6 +362,9 @@ async def process_message(incoming: IncomingMessage) -> str:
                 "tokens_used": tokens_used,
                 "task_matches": len(matched_tasks),
                 "is_new_conversation": is_new,
+                "user_key": user_key,
+                "memory_hits": len(memory_hits),
+                "knowledge_hits": len(knowledge_hits),
             },
         )
     )
@@ -298,9 +412,11 @@ async def handle_bus_forward(bus_message: BusMessage) -> None:
 
 async def handle_config_changed(bus_message: BusMessage) -> None:
     """Handle config change notification — reload LLM and tasks."""
-    global llm
+    global llm, memory_provider, knowledge_provider
     config = await db.get_config()
     llm = create_llm_adapter(db, config)
+    memory_provider = create_memory_provider(db, config)
+    knowledge_provider = create_knowledge_provider(config)
     await task_engine.reload_tasks()
     logger.info("Config reloaded")
 
@@ -503,6 +619,43 @@ async def get_analytics(
     return events
 
 
+@app.get("/api/memory")
+async def list_memory(
+    user_key: str = Query(..., min_length=1),
+    scope: str = Query("all"),
+    limit: int = Query(50, ge=1, le=200),
+):
+    items = await memory_provider.list(user_key=user_key, scope=scope, limit=limit)
+    return [item.model_dump() for item in items]
+
+
+@app.post("/api/memory/search")
+async def search_memory(request: Request):
+    body = await request.json()
+    user_key = str(body.get("user_key") or "").strip()
+    query = str(body.get("query") or "").strip()
+    if not user_key or not query:
+        raise HTTPException(status_code=400, detail="user_key and query are required")
+    limit = int(body.get("limit") or 5)
+    hits = await memory_provider.recall(
+        user_key=user_key,
+        agent_id=agent_id,
+        query=query,
+        limit=max(1, min(limit, 20)),
+    )
+    return [hit.model_dump() for hit in hits]
+
+
+@app.delete("/api/memory")
+async def forget_memory(request: Request):
+    body = await request.json()
+    user_key = str(body.get("user_key") or "").strip()
+    if not user_key:
+        raise HTTPException(status_code=400, detail="user_key is required")
+    forgotten = await memory_provider.forget(user_key, body)
+    return {"forgotten": forgotten}
+
+
 @app.get("/api/system/status")
 async def system_status():
     config = await db.get_config()
@@ -516,6 +669,11 @@ async def system_status():
             "model": config.model,
             "auth_method": config.auth_method.value,
             "agent_name": config.agent_name,
+            "memory_enabled": config.memory_enabled,
+            "memory_provider": config.memory_provider.value,
+            "memory_capture_mode": config.memory_capture_mode.value,
+            "knowledge_provider": config.knowledge_provider.value,
+            "knowledge_collections": config.knowledge_collections,
         },
         "stats": stats,
     }
@@ -549,6 +707,7 @@ async def health():
         "status": "healthy",
         "agent_id": str(agent_id),
         "schema": AGENT_SCHEMA,
+        "memory_provider": (await db.get_config()).memory_provider.value,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 

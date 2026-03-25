@@ -1,0 +1,110 @@
+services:
+  master-dashboard:
+    build: ./master-dashboard
+    container_name: openclaw-master-dashboard
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+      DATABASE_URL: "postgresql://postgres:${DB_PASSWORD:?DB_PASSWORD is required}@${DB_HOST:-supabase-db}:${DB_PORT:-5432}/postgres"
+      AGENT_COUNT: "${AGENT_COUNT:-1}"
+      DEPLOY_ID: "${DEPLOY_ID:-local-dev}"
+      AGENT_SERVICE_TOKEN: "${AGENT_SERVICE_TOKEN:?AGENT_SERVICE_TOKEN is required}"
+      AGENT_INTERNAL_HOST_TEMPLATE: "agent-{index1}"
+    networks:
+      - openclaw
+      - supabase
+
+  agent-1:
+    build: ./agent
+    container_name: openclaw-agent-1
+    restart: unless-stopped
+    environment:
+      AGENT_INDEX: "0"
+      AGENT_SCHEMA: "agent_1"
+      AGENT_NAME: "Local Agent"
+      AGENT_PORT: "8101"
+      GATEWAY_PORT: "8081"
+      DASHBOARD_PORT: "3001"
+      DATABASE_URL: "postgresql://postgres:${DB_PASSWORD:?DB_PASSWORD is required}@${DB_HOST:-supabase-db}:${DB_PORT:-5432}/postgres"
+      DB_PASSWORD: "${DB_PASSWORD:?DB_PASSWORD is required}"
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
+      DEPLOY_ID: "${DEPLOY_ID:-local-dev}"
+      AGENT_SERVICE_TOKEN: "${AGENT_SERVICE_TOKEN:?AGENT_SERVICE_TOKEN is required}"
+      SUPABASE_JWT_SECRET: "${SUPABASE_JWT_SECRET:-}"
+      OPENCLAW_QMD_BASE_URL: "${OPENCLAW_QMD_BASE_URL:-}"
+    networks:
+      - openclaw
+      - supabase
+
+  gateway-1:
+    build: ./gateway
+    container_name: openclaw-gateway-1
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      AGENT_INDEX: "0"
+      GATEWAY_PORT: "8081"
+      AGENT_URL: "http://agent-1:8101"
+      DEPLOY_ID: "${DEPLOY_ID:-local-dev}"
+      AGENT_SERVICE_TOKEN: "${AGENT_SERVICE_TOKEN:?AGENT_SERVICE_TOKEN is required}"
+      TELEGRAM_BOT_TOKEN: "${CHANNEL_1_TELEGRAM_TOKEN:-}"
+      TELEGRAM_WEBHOOK_SECRET: "${CHANNEL_1_TELEGRAM_SECRET:-}"
+      WHATSAPP_ACCESS_TOKEN: "${CHANNEL_1_WHATSAPP_TOKEN:-}"
+      WHATSAPP_VERIFY_TOKEN: "openclaw-verify-${DEPLOY_ID:-local-dev}"
+      WHATSAPP_PHONE_NUMBER_ID: "${CHANNEL_1_WHATSAPP_PHONE_ID:-}"
+      WHATSAPP_APP_SECRET: "${CHANNEL_1_WHATSAPP_APP_SECRET:-}"
+      SLACK_BOT_TOKEN: "${CHANNEL_1_SLACK_TOKEN:-}"
+      SLACK_SIGNING_SECRET: "${CHANNEL_1_SLACK_SECRET:-}"
+    depends_on:
+      - agent-1
+    networks:
+      - openclaw
+
+  dashboard-1:
+    build: ./dashboard
+    container_name: openclaw-dashboard-1
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: "3001"
+      DASHBOARD_PORT: "3001"
+      AGENT_INDEX: "0"
+      AGENT_NAME: "Local Agent"
+      AGENT_HOST: "agent-1"
+      AGENT_PORT: "8101"
+      AGENT_SERVICE_TOKEN: "${AGENT_SERVICE_TOKEN:?AGENT_SERVICE_TOKEN is required}"
+    depends_on:
+      - agent-1
+    networks:
+      - openclaw
+
+  qmd:
+    profiles: ["qmd"]
+    build: ./qmd
+    container_name: openclaw-qmd
+    restart: unless-stopped
+    ports:
+      - "4318:4318"
+    environment:
+      PORT: "4318"
+      QMD_HOME: "/var/lib/qmd"
+      QMD_REPO_ROOT: "/workspace/repo"
+      QMD_EXTRA_PATHS: "/workspace/repo/docs"
+    volumes:
+      - ..:/workspace/repo:ro
+      - qmddata:/var/lib/qmd
+
+volumes:
+  qmddata:
+    driver: local
+
+networks:
+  openclaw:
+    driver: bridge
+  supabase:
+    external: true
+    name: supabase_default

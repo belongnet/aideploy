@@ -24,6 +24,9 @@ import type {
 /* ------------------------------------------------------------------ */
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgresql://openclaw:openclaw@localhost:5432/openclaw";
+const AGENT_SERVICE_TOKEN = process.env.AGENT_SERVICE_TOKEN ?? "";
+const AGENT_INTERNAL_HOST_TEMPLATE =
+  process.env.AGENT_INTERNAL_HOST_TEMPLATE ?? "agent-{index1}";
 
 /**
  * Execute a SQL query against Postgres.
@@ -252,7 +255,10 @@ async function fetchAgentConfig(
   try {
     const rows = await query<AgentConfig>(
       `SELECT model_provider, auth_method, model, system_prompt, agent_name,
-              temperature, max_tokens, prune_enabled, prune_after_days, prune_keep_starred
+              temperature, max_tokens, prune_enabled, prune_after_days, prune_keep_starred,
+              memory_enabled, memory_provider, memory_capture_mode,
+              memory_recall_top_k, memory_similarity_threshold,
+              knowledge_provider, knowledge_collections
        FROM "${schema}".agent_config LIMIT 1`,
     );
     return rows[0] ?? null;
@@ -322,14 +328,30 @@ async function fetchAgentBusMessages(
   }
 }
 
-/** Probe the agent's /health endpoint (runs on port 810N) */
+function resolveAgentInternalHost(port: number): string {
+  const index0 = Math.max(0, port - 8101);
+  const index1 = index0 + 1;
+  return AGENT_INTERNAL_HOST_TEMPLATE
+    .replace("{index0}", String(index0))
+    .replace("{index1}", String(index1));
+}
+
+/** Probe the agent's internal /health endpoint. */
 async function checkHealth(port: number): Promise<boolean> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 2000);
-    const res = await fetch(`http://localhost:${port}/health`, {
+    const headers: HeadersInit = {};
+    if (AGENT_SERVICE_TOKEN) {
+      headers["X-OpenClaw-Service-Token"] = AGENT_SERVICE_TOKEN;
+    }
+    const res = await fetch(
+      `http://${resolveAgentInternalHost(port)}:${port}/health`,
+      {
       signal: controller.signal,
-    });
+        headers,
+      }
+    );
     clearTimeout(timeout);
     return res.ok;
   } catch {
@@ -364,6 +386,13 @@ function getMockAgents(): Agent[] {
         prune_enabled: true,
         prune_after_days: 90,
         prune_keep_starred: true,
+        memory_enabled: true,
+        memory_provider: "supabase",
+        memory_capture_mode: "async",
+        memory_recall_top_k: 5,
+        memory_similarity_threshold: 0.25,
+        knowledge_provider: "none",
+        knowledge_collections: [],
       },
       channels: [
         { id: "ch-1", type: "telegram", name: "Support Bot", status: "active" },
@@ -392,6 +421,13 @@ function getMockAgents(): Agent[] {
         prune_enabled: true,
         prune_after_days: 180,
         prune_keep_starred: true,
+        memory_enabled: true,
+        memory_provider: "supabase",
+        memory_capture_mode: "async",
+        memory_recall_top_k: 5,
+        memory_similarity_threshold: 0.25,
+        knowledge_provider: "qmd",
+        knowledge_collections: ["repo", "docs"],
       },
       channels: [
         { id: "ch-2", type: "slack", name: "#research", status: "active" },
@@ -421,6 +457,13 @@ function getMockAgents(): Agent[] {
         prune_enabled: false,
         prune_after_days: 90,
         prune_keep_starred: true,
+        memory_enabled: false,
+        memory_provider: "none",
+        memory_capture_mode: "off",
+        memory_recall_top_k: 0,
+        memory_similarity_threshold: 0.25,
+        knowledge_provider: "none",
+        knowledge_collections: [],
       },
       channels: [
         { id: "ch-4", type: "whatsapp", name: "Ops Group", status: "error" },

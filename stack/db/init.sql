@@ -6,6 +6,7 @@
 -- Extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS vector;
 
 -- ══════════════════════════════════════════════════════════════
 -- SHARED TABLES (public schema)
@@ -108,6 +109,16 @@ BEGIN
             prune_enabled   BOOLEAN NOT NULL DEFAULT true,
             prune_after_days INT NOT NULL DEFAULT 90,
             prune_keep_starred BOOLEAN NOT NULL DEFAULT true,
+            memory_enabled  BOOLEAN NOT NULL DEFAULT true,
+            memory_provider TEXT NOT NULL DEFAULT ''supabase''
+                            CHECK (memory_provider IN (''supabase'', ''mem0'', ''none'')),
+            memory_capture_mode TEXT NOT NULL DEFAULT ''async''
+                            CHECK (memory_capture_mode IN (''async'', ''off'')),
+            memory_recall_top_k INT NOT NULL DEFAULT 5,
+            memory_similarity_threshold REAL NOT NULL DEFAULT 0.25,
+            knowledge_provider TEXT NOT NULL DEFAULT ''none''
+                            CHECK (knowledge_provider IN (''none'', ''qmd'')),
+            knowledge_collections TEXT[] NOT NULL DEFAULT ''{}'',
             created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
@@ -190,6 +201,63 @@ BEGIN
     ', p_schema_name);
 
     EXECUTE format('CREATE INDEX IF NOT EXISTS idx_%s_msg_conv ON %I.messages(conversation_id, created_at)', p_schema_name, p_schema_name);
+
+    -- Long-term memory
+    EXECUTE format('
+        CREATE TABLE IF NOT EXISTS %I.memory_items (
+            id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+            user_key        TEXT NOT NULL,
+            scope           TEXT NOT NULL DEFAULT ''long_term''
+                            CHECK (scope IN (''long_term'', ''session'')),
+            conversation_id UUID,
+            source_message_id UUID,
+            content         TEXT NOT NULL,
+            summary         TEXT NOT NULL,
+            content_sha256  TEXT NOT NULL,
+            metadata        JSONB NOT NULL DEFAULT ''{}'',
+            forgotten_at    TIMESTAMPTZ,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    ', p_schema_name);
+
+    EXECUTE format('
+        CREATE TABLE IF NOT EXISTS %I.memory_embeddings (
+            memory_id       UUID PRIMARY KEY REFERENCES %I.memory_items(id) ON DELETE CASCADE,
+            embedding       vector(256) NOT NULL,
+            embedding_model TEXT NOT NULL DEFAULT ''hash-v1'',
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    ', p_schema_name, p_schema_name);
+
+    EXECUTE format('
+        CREATE TABLE IF NOT EXISTS %I.memory_capture_jobs (
+            id              BIGSERIAL PRIMARY KEY,
+            user_key        TEXT NOT NULL,
+            conversation_id UUID,
+            status          TEXT NOT NULL DEFAULT ''pending''
+                            CHECK (status IN (''pending'', ''running'', ''completed'', ''skipped'', ''failed'')),
+            payload         JSONB NOT NULL DEFAULT ''{}'',
+            memory_id       UUID,
+            last_error      TEXT,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    ', p_schema_name);
+
+    EXECUTE format('
+        CREATE TABLE IF NOT EXISTS %I.memory_audit_log (
+            id              BIGSERIAL PRIMARY KEY,
+            memory_id       UUID,
+            action          TEXT NOT NULL,
+            metadata        JSONB NOT NULL DEFAULT ''{}'',
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    ', p_schema_name);
+
+    EXECUTE format('CREATE INDEX IF NOT EXISTS idx_%s_memory_user ON %I.memory_items(user_key, scope, created_at DESC)', p_schema_name, p_schema_name);
+    EXECUTE format('CREATE INDEX IF NOT EXISTS idx_%s_memory_conversation ON %I.memory_items(conversation_id, created_at DESC)', p_schema_name, p_schema_name);
+    EXECUTE format('CREATE INDEX IF NOT EXISTS idx_%s_memory_jobs_status ON %I.memory_capture_jobs(status, created_at DESC)', p_schema_name, p_schema_name);
 
     -- Tasks (automation rules)
     EXECUTE format('
