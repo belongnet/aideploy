@@ -1,8 +1,8 @@
 ##
 ## Supabase — Docker Compose deployment for AiDeploy runtimes.
-## Mirrors the Helm chart (supabase-community/supabase-kubernetes) for
-## environments where k3s is unavailable (macOS / Scaleway) or where a
-## simpler Docker-native stack is preferred.
+## Canonical runtime stack for fresh AiDeploy hosts.
+## Used by Linux VM deploys directly and by macOS/Scaleway runtimes via
+## Docker Compose or compatible Docker backends.
 ##
 ## Profiles:
 ##   default       — core services (db, auth, rest, realtime, storage)
@@ -32,7 +32,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - supabase
+      - aideploy-runtime
 
   # ── Auth (GoTrue) ──────────────────────────────────────────────
   supabase-auth:
@@ -58,7 +58,7 @@ services:
       supabase-db:
         condition: service_healthy
     networks:
-      - supabase
+      - aideploy-runtime
 
   # ── REST (PostgREST) ───────────────────────────────────────────
   supabase-rest:
@@ -77,7 +77,7 @@ services:
       supabase-db:
         condition: service_healthy
     networks:
-      - supabase
+      - aideploy-runtime
 
   # ── Realtime ───────────────────────────────────────────────────
   supabase-realtime:
@@ -102,7 +102,7 @@ services:
       supabase-db:
         condition: service_healthy
     networks:
-      - supabase
+      - aideploy-runtime
 
   # ── Storage ────────────────────────────────────────────────────
   supabase-storage:
@@ -131,7 +131,7 @@ services:
       supabase-rest:
         condition: service_started
     networks:
-      - supabase
+      - aideploy-runtime
 
   # ── Studio (Command Center profile) ────────────────────────────
   supabase-studio:
@@ -154,7 +154,7 @@ services:
       supabase-db:
         condition: service_healthy
     networks:
-      - supabase
+      - aideploy-runtime
 
   # ── Kong API Gateway (Command Center profile) ──────────────────
   supabase-kong:
@@ -174,13 +174,15 @@ services:
       KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
       SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY}"
       SUPABASE_SERVICE_KEY: "${SUPABASE_SERVICE_ROLE_KEY}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./kong.yml:/home/kong/kong.yml:ro
     depends_on:
       supabase-db:
         condition: service_healthy
     networks:
-      - supabase
+      - aideploy-runtime
 
   # ── Meta (pg-meta, Command Center profile) ─────────────────────
   supabase-meta:
@@ -199,7 +201,7 @@ services:
       supabase-db:
         condition: service_healthy
     networks:
-      - supabase
+      - aideploy-runtime
 
   # ── Edge Functions (Command Center profile) ────────────────────
   supabase-functions:
@@ -218,7 +220,7 @@ services:
       supabase-db:
         condition: service_healthy
     networks:
-      - supabase
+      - aideploy-runtime
 
 volumes:
   supabase-pgdata:
@@ -227,5 +229,6 @@ volumes:
     driver: local
 
 networks:
-  supabase:
-    driver: bridge
+  aideploy-runtime:
+    external: true
+    name: "${AIDEPLOY_DOCKER_NETWORK:-aideploy-runtime}"

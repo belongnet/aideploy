@@ -1,0 +1,68 @@
+_format_version: "2.1"
+_transform: true
+
+services:
+  - name: auth-v1
+    url: http://supabase-auth:9999/
+    routes:
+      - name: auth-v1-all
+        paths:
+          - /auth/v1/
+        strip_path: false
+
+  - name: rest-v1
+    url: http://supabase-rest:3000/
+    routes:
+      - name: rest-v1-all
+        paths:
+          - /rest/v1/
+        strip_path: false
+
+  - name: storage-v1
+    url: http://supabase-storage:5000/
+    routes:
+      - name: storage-v1-all
+        paths:
+          - /storage/v1/
+        strip_path: false
+
+  - name: realtime-v1
+    url: http://supabase-realtime:4000/
+    routes:
+      - name: realtime-v1-all
+        paths:
+          - /realtime/v1/
+        strip_path: false
+
+  - name: meta-v1
+    url: http://supabase-meta:8080/
+    routes:
+      - name: meta-v1-all
+        paths:
+          - /meta/v1/
+        strip_path: false
+
+  - name: functions-v1
+    url: http://supabase-functions:9000/
+    routes:
+      - name: functions-v1-all
+        paths:
+          - /functions/v1/
+        strip_path: false
+
+  - name: command-center-api
+    url: http://host.docker.internal:8080/
+    routes:
+      - name: command-center-api-all
+        paths:
+          - /api
+          - /api/
+        strip_path: false
+
+  - name: studio
+    url: http://supabase-studio:3000/
+    routes:
+      - name: studio-all
+        paths:
+          - /
+        strip_path: false
