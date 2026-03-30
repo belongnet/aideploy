@@ -1,14 +1,11 @@
 import { NextResponse } from "next/server";
 
-import { agentRequest } from "@/lib/agent-server-api";
+import { restartGateway } from "@/lib/openclaw-runtime";
 
 export async function POST() {
   try {
-    const data = await agentRequest("/api/setup/complete", {
-      method: "POST",
-      body: JSON.stringify({}),
-    });
-    return NextResponse.json(data);
+    await restartGateway();
+    return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json(
       {

@@ -1,5 +1,5 @@
-import { agentRequest } from "@/lib/agent-server-api";
 import { pathToFileURL } from "node:url";
+import { readAuthProfiles, writeAuthProfiles, restartGateway } from "@/lib/openclaw-runtime";
 
 type ProviderId = "openai" | "anthropic";
 
@@ -164,15 +164,18 @@ async function saveOAuthCredentials(provider: ProviderId, creds: any) {
     throw new Error("Connect flow finished without an access token.");
   }
 
-  await agentRequest("/api/setup/oauth", {
-    method: "POST",
-    body: JSON.stringify({
-      provider,
-      accessToken,
-      refreshToken,
-      expiresAt,
-    }),
-  });
+  const config = PROVIDER_CONNECT_CONFIG[provider];
+  const profileId = `${config.providerId}:default`;
+  const store = await readAuthProfiles();
+  store.profiles[profileId] = {
+    provider: config.providerId,
+    authType: "oauth",
+    updatedAt: new Date().toISOString(),
+    accessToken,
+    refreshToken,
+    expiresAt,
+  };
+  await writeAuthProfiles(store);
 }
 
 function nextProviderInput(session: ConnectSessionInternal, prompt?: any) {
@@ -270,10 +273,7 @@ async function runConnectSession(session: ConnectSessionInternal) {
   }
 
   await saveOAuthCredentials(session.provider, creds);
-  await agentRequest("/api/setup/complete", {
-    method: "POST",
-    body: JSON.stringify({ provider: session.provider }),
-  });
+  await restartGateway();
 }
 
 export async function startProviderConnectSession(
