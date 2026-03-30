@@ -54,6 +54,7 @@ services:
       AGENT_INDEX: "{{this.index}}"
       GATEWAY_PORT: "{{this.gateway_port}}"
       AGENT_URL: "http://agent-{{this.index}}:{{this.agent_port}}"
+      DASHBOARD_INTERNAL_URL: "http://dashboard-{{this.index}}:{{this.dashboard_port}}"
       DEPLOY_ID: "{{../deploy_id}}"
       AGENT_SERVICE_TOKEN: "${AGENT_SERVICE_TOKEN:?AGENT_SERVICE_TOKEN is required}"
       TELEGRAM_BOT_TOKEN: "${CHANNEL_{{this.index}}_TELEGRAM_TOKEN:-}"
@@ -82,6 +83,7 @@ services:
       AGENT_NAME: "{{this.name}}"
       AGENT_HOST: "agent-{{this.index}}"
       AGENT_PORT: "{{this.agent_port}}"
+      GATEWAY_INTERNAL_URL: "http://gateway-{{this.index}}:{{this.gateway_port}}"
       AGENT_SERVICE_TOKEN: "${AGENT_SERVICE_TOKEN:?AGENT_SERVICE_TOKEN is required}"
     depends_on:
       - agent-{{this.index}}

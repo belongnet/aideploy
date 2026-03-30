@@ -31,15 +31,19 @@ def normalize_telegram(payload: dict[str, Any]) -> Optional[NormalizedMessage]:
         callback = payload.get("callback_query")
         if callback and callback.get("data"):
             message = callback.get("message", {})
+            chat = message.get("chat", {})
+            sender = callback.get("from", {})
             return NormalizedMessage(
                 channel_type="telegram",
-                channel_id=str(message.get("chat", {}).get("id", "")),
-                chat_id=str(message.get("chat", {}).get("id", "")),
-                sender_name=_telegram_sender_name(callback.get("from", {})),
+                channel_id=str(chat.get("id", "")),
+                chat_id=str(chat.get("id", "")),
+                sender_name=_telegram_sender_name(sender),
                 text=callback["data"],
                 metadata={
                     "callback_query_id": callback.get("id"),
                     "message_id": message.get("message_id"),
+                    "chat_type": chat.get("type", "private"),
+                    "sender_id": str(sender.get("id", "")),
                 },
             )
         return None
@@ -72,6 +76,7 @@ def normalize_telegram(payload: dict[str, Any]) -> Optional[NormalizedMessage]:
             "message_id": message.get("message_id"),
             "chat_type": chat.get("type", "private"),
             "update_id": payload.get("update_id"),
+            "sender_id": str(sender.get("id", "")),
         },
     )
 

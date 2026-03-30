@@ -10,6 +10,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@mariozechner/pi-ai": "^0.52.9",
     "next": "^15.5.14",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

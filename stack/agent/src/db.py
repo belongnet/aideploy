@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import asyncpg
@@ -164,6 +164,18 @@ class Database:
             ON {self._t('memory_capture_jobs')}(status, created_at DESC)
             """
         )
+        await self.pool.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS {self._t('setup_prompt_state')} (
+                prompt_key TEXT NOT NULL,
+                channel_type TEXT NOT NULL,
+                recipient_chat_id TEXT NOT NULL,
+                last_sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                metadata JSONB NOT NULL DEFAULT '{{}}',
+                PRIMARY KEY (prompt_key, channel_type, recipient_chat_id)
+            )
+            """
+        )
         await self._ensure_config_row()
 
     async def _ensure_config_row(self) -> None:
@@ -286,6 +298,10 @@ class Database:
     async def update_channel(
         self, channel_id: uuid.UUID, **kwargs: Any
     ) -> Optional[Channel]:
+        if "config" in kwargs:
+            kwargs["config"] = json.dumps(kwargs["config"])
+        if "type" in kwargs and hasattr(kwargs["type"], "value"):
+            kwargs["type"] = kwargs["type"].value
         sets = ", ".join(f"{k} = ${i+2}" for i, k in enumerate(kwargs.keys()))
         values = list(kwargs.values())
         await self.pool.execute(
@@ -299,6 +315,70 @@ class Database:
         await self.pool.execute(
             f"DELETE FROM {self._t('channels')} WHERE id = $1", channel_id
         )
+
+    async def claim_setup_prompt(
+        self,
+        prompt_key: str,
+        channel_type: str,
+        recipient_chat_id: str,
+        cooldown_seconds: int,
+        metadata: dict[str, Any],
+    ) -> tuple[bool, datetime | None]:
+        now = datetime.now(timezone.utc)
+        table = self._t("setup_prompt_state")
+
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    f"""
+                    SELECT last_sent_at
+                    FROM {table}
+                    WHERE prompt_key = $1
+                      AND channel_type = $2
+                      AND recipient_chat_id = $3
+                    FOR UPDATE
+                    """,
+                    prompt_key,
+                    channel_type,
+                    recipient_chat_id,
+                )
+
+                last_sent_at = row["last_sent_at"] if row else None
+                threshold = now - timedelta(seconds=max(0, cooldown_seconds))
+                if last_sent_at and last_sent_at > threshold:
+                    return False, last_sent_at
+
+                if row:
+                    await conn.execute(
+                        f"""
+                        UPDATE {table}
+                        SET last_sent_at = $4,
+                            metadata = $5
+                        WHERE prompt_key = $1
+                          AND channel_type = $2
+                          AND recipient_chat_id = $3
+                        """,
+                        prompt_key,
+                        channel_type,
+                        recipient_chat_id,
+                        now,
+                        json.dumps(metadata),
+                    )
+                else:
+                    await conn.execute(
+                        f"""
+                        INSERT INTO {table}
+                            (prompt_key, channel_type, recipient_chat_id, last_sent_at, metadata)
+                        VALUES ($1, $2, $3, $4, $5)
+                        """,
+                        prompt_key,
+                        channel_type,
+                        recipient_chat_id,
+                        now,
+                        json.dumps(metadata),
+                    )
+
+                return True, now
 
     # ── Conversations ────────────────────────────────────────
 

@@ -22,6 +22,10 @@ export interface Agent {
   channels?: ChannelSummary[];
   /** Whether the agent process responded to /health */
   healthy?: boolean;
+  /** Whether the active AI provider is ready to answer messages */
+  ai_connected?: boolean;
+  /** Direct setup page for connecting the active AI provider */
+  setup_url?: string;
 }
 
 /** Per-agent config from <schema>.agent_config */

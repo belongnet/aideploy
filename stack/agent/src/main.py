@@ -12,11 +12,12 @@ import asyncio
 import json
 import logging
 import os
+import re
 import signal
 import sys
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import uvicorn
@@ -46,6 +47,7 @@ from .models import (
     MessageRole,
     MemoryHit,
     MemoryItem,
+    OAuthTokens,
     Task,
     TurnContext,
     TriggerType,
@@ -83,6 +85,17 @@ prune_job: PruneJob
 agent_id: uuid.UUID
 memory_provider: Any
 knowledge_provider: Any
+
+PROVIDER_LABELS = {
+    "openai": "ChatGPT",
+    "anthropic": "Claude",
+    "gemini": "Gemini",
+    "kimi": "Kimi",
+}
+CHAT_CONNECT_DEFAULT_MODELS = {
+    "openai": "gpt-5.3-codex",
+    "anthropic": "claude-opus-4-6",
+}
 
 
 # ── Lifespan ──────────────────────────────────────────────────
@@ -215,6 +228,161 @@ async def _search_knowledge(config: Any, query: str) -> list[KnowledgeHit]:
     )
 
 
+async def _resolve_dashboard_setup_url() -> str:
+    dashboard_port = int(os.environ.get("DASHBOARD_PORT", "3001"))
+    try:
+        row = await db.pool.fetchrow(
+            """
+            SELECT NULLIF(tailscale_ip, '') AS tailscale_ip,
+                   NULLIF(server_ip, '') AS server_ip
+            FROM public.deploy_info
+            ORDER BY created_at DESC
+            LIMIT 1
+            """
+        )
+        host = (
+            row["tailscale_ip"]
+            if row and row["tailscale_ip"]
+            else row["server_ip"]
+            if row and row["server_ip"]
+            else None
+        )
+        if host:
+            return f"http://{host}:{dashboard_port}/setup"
+    except Exception as exc:
+        logger.debug("Could not resolve dashboard setup URL: %s", exc)
+    return f"http://localhost:{dashboard_port}/setup"
+
+
+def _setup_auth_method_label(config: Any) -> str:
+    return "consumer" if config.auth_method == AuthMethod.OAUTH else "api_key"
+
+
+async def _is_provider_connected(config: Any, provider: str) -> bool:
+    if config.auth_method == AuthMethod.OAUTH:
+        return await db.get_oauth_tokens(provider) is not None
+    return await db.get_api_key(provider) is not None
+
+
+def _supported_chat_connect_providers() -> list[dict[str, str]]:
+    return [
+        {
+            "id": provider,
+            "name": PROVIDER_LABELS.get(provider, provider.title()),
+            "defaultModel": model,
+        }
+        for provider, model in CHAT_CONNECT_DEFAULT_MODELS.items()
+    ]
+
+
+def _requested_provider_from_text(text: str, default_provider: str) -> str:
+    normalized = text.lower()
+    if any(term in normalized for term in ("chatgpt", "openai", "gpt")):
+        return "openai"
+    if any(term in normalized for term in ("claude", "anthropic")):
+        return "anthropic"
+    return default_provider
+
+
+def _is_setup_help_intent(text: str) -> bool:
+    normalized = text.strip().lower()
+    if not normalized:
+        return False
+    setup_patterns = (
+        r"\bconnect\b",
+        r"\bsetup\b",
+        r"\blink\b",
+        r"\boauth\b",
+        r"\bsign[ -]?in\b",
+        r"\bauth\b",
+        r"\bconfigure\b",
+    )
+    if not any(re.search(pattern, normalized) for pattern in setup_patterns):
+        return False
+    return any(
+        term in normalized
+        for term in ("ai", "chatgpt", "openai", "claude", "anthropic")
+    )
+
+
+async def _build_ai_connect_instructions(provider: str) -> str:
+    setup_url = await _resolve_dashboard_setup_url()
+    label = PROVIDER_LABELS.get(provider, provider.title())
+
+    if provider == "openai":
+        return "\n".join(
+            [
+                "Here is the fastest ChatGPT setup path:",
+                f"1. Open {setup_url}",
+                '2. Press "New Browser Link" under ChatGPT',
+                "3. Sign in in your browser on your own device",
+                "4. Paste the localhost redirect URL or code back into the setup card",
+                "5. Return here and send your message again",
+            ]
+        )
+
+    if provider == "anthropic":
+        return "\n".join(
+            [
+                "Here is the fastest Claude setup path:",
+                f"1. Open {setup_url}",
+                '2. Press "New Browser Link" under Claude',
+                "3. Sign in in your browser on your own device",
+                "4. Paste the Claude redirect URL or one-time code back into the setup card",
+                "5. Return here and send your message again",
+            ]
+        )
+
+    return "\n".join(
+        [
+            f"{label} is not ready yet.",
+            f"Open {setup_url} to finish the setup, then message me again.",
+        ]
+    )
+
+
+async def _build_missing_ai_reply(config: Any, error_text: str = "") -> str:
+    provider = config.model_provider.value
+    label = PROVIDER_LABELS.get(provider, provider.title())
+    setup_url = await _resolve_dashboard_setup_url()
+    reason = (
+        f"Your {label} connection expired."
+        if "expired" in error_text.lower()
+        else f"Your {label} account is not connected yet."
+    )
+
+    lines = [
+        reason,
+        "I cannot reply normally until that setup is finished.",
+        f"Open {setup_url} and connect your AI account.",
+        "",
+        "If you want the exact steps here first, send:",
+    ]
+
+    if provider == "openai":
+        lines.append("connect chatgpt")
+    elif provider == "anthropic":
+        lines.append("connect claude")
+    else:
+        lines.append("connect ai")
+
+    return "\n".join(lines)
+
+
+def _is_auth_configuration_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(
+        marker in text
+        for marker in (
+            "no oauth tokens found",
+            "no api key found",
+            "please reconnect your account",
+            "please add your api key",
+            "expired",
+        )
+    )
+
+
 async def process_message(incoming: IncomingMessage) -> str:
     """
     9-step agent processing pipeline:
@@ -278,6 +446,14 @@ async def process_message(incoming: IncomingMessage) -> str:
 
     # Step 5: Build conversation context
     config = await db.get_config()
+    if _is_setup_help_intent(incoming.text) and not await _is_provider_connected(config, config.model_provider.value):
+        return await _build_ai_connect_instructions(
+            _requested_provider_from_text(
+                incoming.text,
+                config.model_provider.value,
+            )
+        )
+
     user_key = resolve_user_key(
         incoming.metadata,
         incoming.channel_type.value,
@@ -308,7 +484,10 @@ async def process_message(incoming: IncomingMessage) -> str:
         tokens_used = result.get("tokens_used", 0)
     except Exception as e:
         logger.error(f"LLM call failed: {e}")
-        response_text = "I'm having trouble responding right now. Please try again."
+        if _is_auth_configuration_error(e):
+            response_text = await _build_missing_ai_reply(config, str(e))
+        else:
+            response_text = "I'm having trouble responding right now. Please try again."
         tokens_used = 0
 
     # Step 7: Store response
@@ -440,6 +619,105 @@ async def receive_message(request: Request) -> dict[str, Any]:
 async def get_config():
     config = await db.get_config()
     return config.model_dump()
+
+
+@app.get("/api/setup/status")
+async def get_setup_status():
+    config = await db.get_config()
+    provider = config.model_provider.value
+    label = PROVIDER_LABELS.get(provider, provider.title())
+    connected = await _is_provider_connected(config, provider)
+    auth_method = _setup_auth_method_label(config)
+    dashboard_setup_url = await _resolve_dashboard_setup_url()
+
+    return {
+        "setupRequired": not connected,
+        "currentProvider": provider,
+        "currentModel": config.model,
+        "currentAuthMethod": auth_method,
+        "dashboardSetupUrl": dashboard_setup_url,
+        "supportedChatConnectProviders": _supported_chat_connect_providers(),
+        "providers": [
+            {
+                "id": provider,
+                "name": label,
+                "authMethod": auth_method,
+                "connected": connected,
+            }
+        ],
+    }
+
+
+@app.post("/api/setup/prompts/claim")
+async def claim_setup_prompt_route(request: Request):
+    body = await request.json()
+    prompt_key = str(body.get("promptKey") or "").strip()
+    channel_type = str(body.get("channelType") or "").strip().lower()
+    recipient_chat_id = str(body.get("recipientChatId") or "").strip()
+    try:
+        cooldown_seconds = int(body.get("cooldownSeconds") or 0)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="cooldownSeconds must be an integer",
+        ) from exc
+    metadata = body.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+
+    if not prompt_key:
+        raise HTTPException(status_code=400, detail="promptKey is required")
+    if not channel_type:
+        raise HTTPException(status_code=400, detail="channelType is required")
+    if not recipient_chat_id:
+        raise HTTPException(status_code=400, detail="recipientChatId is required")
+
+    should_send, last_sent_at = await db.claim_setup_prompt(
+        prompt_key=prompt_key,
+        channel_type=channel_type,
+        recipient_chat_id=recipient_chat_id,
+        cooldown_seconds=max(0, cooldown_seconds),
+        metadata=metadata,
+    )
+    return {
+        "shouldSend": should_send,
+        "lastSentAt": last_sent_at.isoformat() if last_sent_at else None,
+    }
+
+
+@app.post("/api/setup/oauth")
+async def save_setup_oauth(request: Request):
+    body = await request.json()
+    provider = str(body.get("provider") or "").strip().lower()
+    if provider not in ("openai", "anthropic"):
+        raise HTTPException(status_code=400, detail="Unsupported provider")
+
+    access_token = str(body.get("accessToken") or "").strip()
+    refresh_token = str(body.get("refreshToken") or "").strip()
+    expires_at_raw = str(body.get("expiresAt") or "").strip()
+    if not access_token:
+        raise HTTPException(status_code=400, detail="accessToken is required")
+
+    if expires_at_raw:
+        expires_at = datetime.fromisoformat(expires_at_raw.replace("Z", "+00:00"))
+    else:
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+
+    await db.save_oauth_tokens(
+        OAuthTokens(
+            provider=provider,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_at=expires_at,
+        )
+    )
+
+    return {"ok": True}
+
+
+@app.post("/api/setup/complete")
+async def complete_setup_route():
+    return {"ok": True}
 
 
 @app.put("/api/config")

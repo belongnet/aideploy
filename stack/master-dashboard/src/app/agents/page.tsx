@@ -130,6 +130,7 @@ function AgentRow({
   const model = agent.config?.model ?? "-";
   const channels = agent.channels ?? [];
   const isHealthy = agent.status === "running" && agent.healthy !== false;
+  const needsAiSetup = agent.ai_connected === false;
 
   return (
     <tr className="hover:bg-gray-50 transition-colors">
@@ -195,6 +196,16 @@ function AgentRow({
       {/* Actions */}
       <td className="px-5 py-3.5 text-right">
         <div className="flex items-center justify-end gap-1">
+          {needsAiSetup && agent.setup_url && (
+            <a
+              href={agent.setup_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-primary text-xs"
+            >
+              Connect AI
+            </a>
+          )}
           {agent.status === "running" ? (
             <>
               <button
@@ -247,6 +258,7 @@ function AgentMobileCard({
   const model = agent.config?.model ?? "-";
   const channels = agent.channels ?? [];
   const isHealthy = agent.status === "running" && agent.healthy !== false;
+  const needsAiSetup = agent.ai_connected === false;
 
   return (
     <div className="card p-4 space-y-3">
@@ -307,6 +319,16 @@ function AgentMobileCard({
 
       {/* Actions */}
       <div className="flex gap-2 border-t border-gray-100 pt-3">
+        {needsAiSetup && agent.setup_url && (
+          <a
+            href={agent.setup_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn-primary flex-1 text-xs"
+          >
+            Connect AI
+          </a>
+        )}
         {agent.status === "running" ? (
           <>
             <button

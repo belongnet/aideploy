@@ -27,7 +27,12 @@ logger = logging.getLogger(__name__)
 
 REFRESH_URLS = {
     "openai": "https://auth.openai.com/oauth/token",
-    "anthropic": "https://console.anthropic.com/oauth/token",
+    "anthropic": "https://console.anthropic.com/v1/oauth/token",
+}
+
+DEFAULT_CLIENT_IDS = {
+    "openai": "app_EMoamEEZ73f0CkXaXp7hrann",
+    "anthropic": "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
 }
 
 
@@ -80,7 +85,12 @@ class LLMAdapter(ABC):
 
         # Refresh if expiring within 5 minutes
         if tokens.expires_at < datetime.now(timezone.utc) + timedelta(minutes=5):
-            tokens = await self._refresh_oauth_token(provider, tokens)
+            if tokens.refresh_token:
+                tokens = await self._refresh_oauth_token(provider, tokens)
+            else:
+                raise RuntimeError(
+                    f"Your {provider} sign-in expired. Please reconnect your account."
+                )
 
         return {"Authorization": f"Bearer {tokens.access_token}"}
 
@@ -140,7 +150,10 @@ class LLMAdapter(ABC):
     def _get_client_id(self, provider: str) -> str:
         import os
 
-        return os.environ.get(f"{provider.upper()}_CLIENT_ID", "")
+        return os.environ.get(
+            f"{provider.upper()}_CLIENT_ID",
+            DEFAULT_CLIENT_IDS.get(provider, ""),
+        )
 
 
 # ── OpenAI Adapter ───────────────────────────────────────────

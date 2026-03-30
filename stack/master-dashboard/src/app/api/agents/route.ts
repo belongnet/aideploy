@@ -185,18 +185,22 @@ async function listAgents(): Promise<NextResponse> {
   /* Enrich each agent with config, channels, message count, health */
   const enriched: Agent[] = await Promise.all(
     rows.map(async (agent) => {
-      const [config, channels, countRow, healthy] = await Promise.all([
+      const [config, channels, countRow, healthy, setupUrl] = await Promise.all([
         fetchAgentConfig(agent.schema_name),
         fetchAgentChannels(agent.schema_name),
         fetchMessageCount(agent.schema_name),
         checkHealth(agent.agent_port),
+        buildSetupUrl(agent.dashboard_port),
       ]);
+      const ai_connected = await fetchAgentAiConnected(agent.schema_name, config);
       return {
         ...agent,
         config: config ?? undefined,
         channels,
         messages_today: countRow,
         healthy,
+        ai_connected,
+        setup_url: setupUrl ?? undefined,
       };
     }),
   );
@@ -224,7 +228,7 @@ async function getAgentDetail(agentId: string): Promise<NextResponse> {
   }
 
   const agent = rows[0];
-  const [config, channels, msgCount, healthy, conversations, busMessages] =
+  const [config, channels, msgCount, healthy, conversations, busMessages, setupUrl] =
     await Promise.all([
       fetchAgentConfig(agent.schema_name),
       fetchAgentChannels(agent.schema_name),
@@ -232,7 +236,9 @@ async function getAgentDetail(agentId: string): Promise<NextResponse> {
       checkHealth(agent.agent_port),
       fetchRecentConversations(agent.schema_name),
       fetchAgentBusMessages(agentId),
+      buildSetupUrl(agent.dashboard_port),
     ]);
+  const ai_connected = await fetchAgentAiConnected(agent.schema_name, config);
 
   return NextResponse.json({
     ...agent,
@@ -240,6 +246,8 @@ async function getAgentDetail(agentId: string): Promise<NextResponse> {
     channels,
     messages_today: msgCount,
     healthy,
+    ai_connected,
+    setup_url: setupUrl ?? undefined,
     conversations,
     bus_messages: busMessages,
   });
@@ -289,6 +297,50 @@ async function fetchMessageCount(schema: string): Promise<number> {
   } catch {
     return 0;
   }
+}
+
+async function fetchAgentAiConnected(
+  schema: string,
+  config: AgentConfig | null,
+): Promise<boolean> {
+  if (!config) return false;
+  try {
+    if (config.auth_method === "oauth") {
+      const rows = await query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+         FROM "${schema}".oauth_tokens
+         WHERE provider = $1`,
+        [config.model_provider],
+      );
+      return parseInt(rows[0]?.count ?? "0", 10) > 0;
+    }
+
+    const rows = await query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+       FROM "${schema}".api_keys
+       WHERE provider = $1`,
+      [config.model_provider],
+    );
+    return parseInt(rows[0]?.count ?? "0", 10) > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function buildSetupUrl(dashboardPort: number): Promise<string | null> {
+  try {
+    const rows = await query<{ host: string | null }>(
+      `SELECT COALESCE(NULLIF(tailscale_ip, ''), NULLIF(server_ip, '')) AS host
+       FROM public.deploy_info
+       ORDER BY created_at DESC
+       LIMIT 1`,
+    );
+    const host = rows[0]?.host;
+    if (host) return `http://${host}:${dashboardPort}/setup`;
+  } catch {
+    /* fall through */
+  }
+  return `http://localhost:${dashboardPort}/setup`;
 }
 
 async function fetchRecentConversations(
@@ -399,6 +451,8 @@ function getMockAgents(): Agent[] {
       ],
       messages_today: 42,
       healthy: true,
+      ai_connected: false,
+      setup_url: "http://localhost:3001/setup",
     },
     {
       id: "00000000-0000-0000-0000-000000000002",
@@ -435,6 +489,8 @@ function getMockAgents(): Agent[] {
       ],
       messages_today: 18,
       healthy: true,
+      ai_connected: false,
+      setup_url: "http://localhost:3002/setup",
     },
     {
       id: "00000000-0000-0000-0000-000000000003",
@@ -470,6 +526,8 @@ function getMockAgents(): Agent[] {
       ],
       messages_today: 3,
       healthy: false,
+      ai_connected: true,
+      setup_url: "http://localhost:3003/setup",
     },
   ];
 }

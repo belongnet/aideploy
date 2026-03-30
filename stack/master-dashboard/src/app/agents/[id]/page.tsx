@@ -92,6 +92,7 @@ export default function AgentDetailPage() {
   const conversations = agent.conversations ?? [];
   const busMessages = agent.bus_messages ?? [];
   const channels = agent.channels ?? [];
+  const needsAiSetup = agent.ai_connected === false;
 
   return (
     <div className="space-y-6">
@@ -144,6 +145,32 @@ export default function AgentDetailPage() {
           </a>
         </div>
       </div>
+
+      {needsAiSetup && agent.setup_url && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
+                Connect AI First
+              </p>
+              <h2 className="mt-1 text-lg font-semibold text-amber-950">
+                {providerLabel(config?.model_provider ?? "openai")} is not connected yet
+              </h2>
+              <p className="mt-1 text-sm text-amber-900">
+                People can message this bot already, but it will reply with setup errors until the active AI account is connected.
+              </p>
+            </div>
+            <a
+              href={agent.setup_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-primary"
+            >
+              Connect AI Now
+            </a>
+          </div>
+        </div>
+      )}
 
       {/* ── Config summary + Health ── */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
