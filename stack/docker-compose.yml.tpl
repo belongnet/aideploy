@@ -20,6 +20,10 @@ services:
       DEPLOY_ID: "${DEPLOY_ID:?DEPLOY_ID is required}"
       AGENT_SERVICE_TOKEN: "${AGENT_SERVICE_TOKEN:?AGENT_SERVICE_TOKEN is required}"
       AGENT_INTERNAL_HOST_TEMPLATE: "agent-{index0}"
+      SUPABASE_URL: "${SUPABASE_URL:-http://supabase-kong:8000}"
+      SUPABASE_PUBLIC_URL: "${SUPABASE_PUBLIC_URL:-http://localhost:8000}"
+      SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:-}"
+      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-}"
     networks:
       - openclaw
       - supabase
@@ -39,6 +43,10 @@ services:
       ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
       DEPLOY_ID: "${DEPLOY_ID:?DEPLOY_ID is required}"
       AGENT_SERVICE_TOKEN: "${AGENT_SERVICE_TOKEN:?AGENT_SERVICE_TOKEN is required}"
+      SUPABASE_URL: "${SUPABASE_URL:-http://supabase-kong:8000}"
+      SUPABASE_PUBLIC_URL: "${SUPABASE_PUBLIC_URL:-http://localhost:8000}"
+      SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:-}"
+      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-}"
       SUPABASE_JWT_SECRET: "${SUPABASE_JWT_SECRET:-}"
     networks:
       - openclaw
@@ -65,10 +73,15 @@ services:
       WHATSAPP_APP_SECRET: "${CHANNEL_{{this.index}}_WHATSAPP_APP_SECRET:-}"
       SLACK_BOT_TOKEN: "${CHANNEL_{{this.index}}_SLACK_TOKEN:-}"
       SLACK_SIGNING_SECRET: "${CHANNEL_{{this.index}}_SLACK_SECRET:-}"
+      SUPABASE_URL: "${SUPABASE_URL:-http://supabase-kong:8000}"
+      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-}"
+      SUPABASE_STORAGE_BUCKET: "${SUPABASE_STORAGE_BUCKET:-agent-files}"
+      SUPABASE_STORAGE_MAX_BYTES: "${SUPABASE_STORAGE_MAX_BYTES:-26214400}"
     depends_on:
       - agent-{{this.index}}
     networks:
       - openclaw
+      - supabase
 
   dashboard-{{this.index}}:
     build: ./dashboard
@@ -85,6 +98,9 @@ services:
       AGENT_PORT: "{{this.agent_port}}"
       GATEWAY_INTERNAL_URL: "http://gateway-{{this.index}}:{{this.gateway_port}}"
       AGENT_SERVICE_TOKEN: "${AGENT_SERVICE_TOKEN:?AGENT_SERVICE_TOKEN is required}"
+      SUPABASE_URL: "${SUPABASE_URL:-http://supabase-kong:8000}"
+      SUPABASE_PUBLIC_URL: "${SUPABASE_PUBLIC_URL:-http://localhost:8000}"
+      SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:-}"
     depends_on:
       - agent-{{this.index}}
     networks:

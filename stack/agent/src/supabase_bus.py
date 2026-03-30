@@ -1,13 +1,12 @@
 """
 OpenClaw Agent — Supabase Realtime message bus adapter.
 
-When the Command Center is active, agents can use Supabase Realtime
-(via the agent_messages table) for cross-agent messaging. This adapter
-bridges the existing BusClient with Supabase Realtime inserts.
+Agents use the runtime Postgres bus for delivery, and this adapter mirrors
+those events into the shared `agent_messages` table so Supabase Realtime
+subscribers can observe them.
 
-Requires SUPABASE_URL and SUPABASE_SERVICE_KEY environment variables.
-Falls back silently to the standard Postgres LISTEN/NOTIFY bus if
-Supabase is not configured.
+Mirroring is enabled by default because the runtime database is already the
+Supabase Postgres instance. Set `SUPABASE_BUS_ENABLED=false` to disable it.
 """
 
 from __future__ import annotations
@@ -24,6 +23,13 @@ import asyncpg
 logger = logging.getLogger(__name__)
 
 
+def _env_flag_enabled(name: str, *, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
 class SupabaseBusAdapter:
     """Writes agent messages to the Supabase agent_messages table.
 
@@ -36,7 +42,7 @@ class SupabaseBusAdapter:
         self.dsn = dsn
         self.agent_id = agent_id
         self._pool: Optional[asyncpg.Pool] = None
-        self._enabled = bool(os.environ.get("SUPABASE_URL"))
+        self._enabled = _env_flag_enabled("SUPABASE_BUS_ENABLED", default=True)
 
     @property
     def enabled(self) -> bool:
@@ -45,23 +51,67 @@ class SupabaseBusAdapter:
     async def start(self) -> None:
         """Connect to the database for Realtime table inserts."""
         if not self._enabled:
-            logger.info("Supabase bus adapter disabled (SUPABASE_URL not set)")
+            logger.info("Supabase bus adapter disabled (SUPABASE_BUS_ENABLED=false)")
             return
 
         self._pool = await asyncpg.create_pool(self.dsn, min_size=1, max_size=2)
         logger.info(f"Supabase bus adapter started for agent {self.agent_id}")
 
-        # Ensure the agent_messages table exists
+        # Ensure the shared chat tables are published to Realtime
         async with self._pool.acquire() as conn:
             await conn.execute("""
-                CREATE TABLE IF NOT EXISTS agent_messages (
+                CREATE TABLE IF NOT EXISTS public.agent_conversations (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    channel_type TEXT NOT NULL,
+                    channel_id TEXT,
+                    chat_id TEXT NOT NULL,
+                    participant_name TEXT,
+                    title TEXT,
+                    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    UNIQUE (channel_type, chat_id)
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS public.agent_messages (
                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                     user_id TEXT,
-                    channel TEXT NOT NULL,
-                    sender_agent TEXT NOT NULL,
-                    payload JSONB NOT NULL,
+                    channel TEXT NOT NULL DEFAULT 'agent_bus',
+                    sender_agent TEXT NOT NULL DEFAULT '',
+                    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
                     created_at TIMESTAMPTZ DEFAULT now()
                 )
+            """)
+            await conn.execute(
+                "ALTER TABLE public.agent_messages REPLICA IDENTITY FULL"
+            )
+            await conn.execute(
+                "ALTER TABLE public.agent_conversations REPLICA IDENTITY FULL"
+            )
+            await conn.execute("""
+                DO $$
+                BEGIN
+                  ALTER PUBLICATION supabase_realtime ADD TABLE public.agent_messages;
+                EXCEPTION
+                  WHEN duplicate_object THEN
+                    NULL;
+                  WHEN undefined_object THEN
+                    CREATE PUBLICATION supabase_realtime FOR TABLE public.agent_messages;
+                END;
+                $$;
+            """)
+            await conn.execute("""
+                DO $$
+                BEGIN
+                  ALTER PUBLICATION supabase_realtime ADD TABLE public.agent_conversations;
+                EXCEPTION
+                  WHEN duplicate_object THEN
+                    NULL;
+                  WHEN undefined_object THEN
+                    CREATE PUBLICATION supabase_realtime FOR TABLE public.agent_conversations;
+                END;
+                $$;
             """)
 
     async def stop(self) -> None:
