@@ -53,6 +53,8 @@ from .models import (
     TriggerType,
 )
 from .prune_job import BusCleanupJob, PruneJob
+from .shared_context import build_shared_context_prompt
+from .supabase_bus import SupabaseBusAdapter
 from .task_engine import TaskEngine
 from .task_executor import TaskExecutor
 
@@ -131,7 +133,11 @@ async def lifespan(app: FastAPI):
     knowledge_provider = create_knowledge_provider(config)
 
     # Bus client
-    bus = BusClient(DB_DSN, agent_id)
+    bus = BusClient(
+        DB_DSN,
+        agent_id,
+        realtime_adapter=SupabaseBusAdapter(DB_DSN, agent_id),
+    )
     await bus.start()
 
     # Task executor and engine
@@ -225,6 +231,67 @@ async def _search_knowledge(config: Any, query: str) -> list[KnowledgeHit]:
         query=query,
         scope="local",
         limit=max(1, min(config.memory_recall_top_k, 5)),
+    )
+
+
+def _should_sync_shared_chat(incoming: IncomingMessage) -> bool:
+    return incoming.metadata.get("source") != "bus" and incoming.channel_id != "bus"
+
+
+def _incoming_external_message_id(metadata: dict[str, Any]) -> str | None:
+    value = metadata.get("message_id") or metadata.get("ts")
+    if not value:
+        return None
+    return str(value)
+
+
+def _incoming_attachments(metadata: dict[str, Any]) -> list[dict[str, Any]]:
+    attachments = metadata.get("attachments")
+    return attachments if isinstance(attachments, list) else []
+
+
+async def _record_shared_outgoing_for_conversation(
+    conversation_id: uuid.UUID,
+    text: str,
+    *,
+    metadata: dict[str, Any] | None = None,
+    dedupe_key: str | None = None,
+) -> None:
+    conv = await db.get_conversation(conversation_id)
+    if not conv:
+        return
+    if conv.external_chat_id.startswith("agent_"):
+        return
+
+    channel = await db.get_channel(conv.channel_id)
+    if not channel:
+        return
+
+    config = await db.get_config()
+    shared_conversation_id = await db.upsert_shared_conversation(
+        channel_type=channel.type.value,
+        channel_id=None,
+        chat_id=conv.external_chat_id,
+        participant_name=conv.participant_name,
+        title=conv.title,
+        metadata=metadata or {},
+    )
+    await db.add_shared_message(
+        kind="chat",
+        direction="outgoing",
+        channel=channel.type.value,
+        channel_type=channel.type.value,
+        channel_id=None,
+        chat_id=conv.external_chat_id,
+        message_role=MessageRole.ASSISTANT.value,
+        content=text,
+        agent_id=agent_id,
+        agent_name=config.agent_name,
+        conversation_ref=shared_conversation_id,
+        local_conversation_id=conv.id,
+        sender_name=config.agent_name,
+        dedupe_key=dedupe_key,
+        metadata=metadata or {},
     )
 
 
@@ -414,7 +481,6 @@ async def process_message(incoming: IncomingMessage) -> str:
 
     # Step 2: Find or create conversation
     is_new = False
-    existing = await db.get_conversations(limit=1)
     conv = await db.get_or_create_conversation(
         channel_id=channel.id,
         chat_id=incoming.chat_id,
@@ -422,6 +488,61 @@ async def process_message(incoming: IncomingMessage) -> str:
     )
     if conv.message_count == 0:
         is_new = True
+
+    config = await db.get_config()
+    user_key = resolve_user_key(
+        incoming.metadata,
+        incoming.channel_type.value,
+        incoming.chat_id,
+    )
+    shared_sync_enabled = _should_sync_shared_chat(incoming)
+    incoming_attachments = _incoming_attachments(incoming.metadata)
+
+    if shared_sync_enabled:
+        shared_conversation_id = await db.upsert_shared_conversation(
+            channel_type=incoming.channel_type.value,
+            channel_id=incoming.channel_id,
+            chat_id=incoming.chat_id,
+            participant_name=incoming.sender_name,
+            title=str(
+                incoming.metadata.get("chat_title")
+                or conv.title
+                or incoming.sender_name
+                or incoming.chat_id
+            ),
+            metadata={
+                "chat_type": incoming.metadata.get("chat_type"),
+                "chat_title": incoming.metadata.get("chat_title"),
+            },
+        )
+        await db.add_shared_message(
+            kind="chat",
+            direction="incoming",
+            channel=incoming.channel_type.value,
+            channel_type=incoming.channel_type.value,
+            channel_id=incoming.channel_id,
+            chat_id=incoming.chat_id,
+            message_role=MessageRole.USER.value,
+            content=incoming.text,
+            user_id=user_key,
+            agent_id=agent_id,
+            agent_name=config.agent_name,
+            conversation_ref=shared_conversation_id,
+            local_conversation_id=conv.id,
+            sender_name=incoming.sender_name,
+            sender_id=str(incoming.metadata.get("sender_id") or ""),
+            external_message_id=_incoming_external_message_id(incoming.metadata),
+            dedupe_key=(
+                f"incoming:{incoming.channel_type.value}:{incoming.chat_id}:{_incoming_external_message_id(incoming.metadata)}"
+                if _incoming_external_message_id(incoming.metadata)
+                else None
+            ),
+            attachments=incoming_attachments,
+            metadata={
+                "source": "gateway",
+                **incoming.metadata,
+            },
+        )
 
     # Step 3: Store incoming message
     user_msg = Message(
@@ -445,50 +566,67 @@ async def process_message(incoming: IncomingMessage) -> str:
     # (task_executor sends replies via the reply_callback)
 
     # Step 5: Build conversation context
-    config = await db.get_config()
-    if _is_setup_help_intent(incoming.text) and not await _is_provider_connected(config, config.model_provider.value):
-        return await _build_ai_connect_instructions(
+    setup_help_response: str | None = None
+    if _is_setup_help_intent(incoming.text) and not await _is_provider_connected(
+        config, config.model_provider.value
+    ):
+        setup_help_response = await _build_ai_connect_instructions(
             _requested_provider_from_text(
                 incoming.text,
                 config.model_provider.value,
             )
         )
 
-    user_key = resolve_user_key(
-        incoming.metadata,
-        incoming.channel_type.value,
-        incoming.chat_id,
-    )
-    history = await db.get_messages(conv.id, limit=20)
-    messages: list[dict[str, str]] = [
-        {"role": "system", "content": config.system_prompt}
-    ]
+    memory_hits: list[MemoryHit] = []
+    knowledge_hits: list[KnowledgeHit] = []
 
-    memory_hits = await _recall_memory(config, user_key, incoming)
-    memory_prompt = build_memory_prompt(memory_hits)
-    if memory_prompt:
-        messages.append({"role": "system", "content": memory_prompt})
-
-    knowledge_hits = await _search_knowledge(config, incoming.text)
-    knowledge_prompt = build_knowledge_prompt(knowledge_hits)
-    if knowledge_prompt:
-        messages.append({"role": "system", "content": knowledge_prompt})
-
-    for msg in history:
-        messages.append({"role": msg.role.value, "content": msg.content})
-
-    # Step 6: Call LLM
-    try:
-        result = await llm.chat(messages)
-        response_text = result["content"]
-        tokens_used = result.get("tokens_used", 0)
-    except Exception as e:
-        logger.error(f"LLM call failed: {e}")
-        if _is_auth_configuration_error(e):
-            response_text = await _build_missing_ai_reply(config, str(e))
-        else:
-            response_text = "I'm having trouble responding right now. Please try again."
+    if setup_help_response is not None:
+        response_text = setup_help_response
         tokens_used = 0
+    else:
+        history = await db.get_messages(conv.id, limit=20)
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": config.system_prompt}
+        ]
+
+        memory_hits = await _recall_memory(config, user_key, incoming)
+        memory_prompt = build_memory_prompt(memory_hits)
+        if memory_prompt:
+            messages.append({"role": "system", "content": memory_prompt})
+
+        knowledge_hits = await _search_knowledge(config, incoming.text)
+        knowledge_prompt = build_knowledge_prompt(knowledge_hits)
+        if knowledge_prompt:
+            messages.append({"role": "system", "content": knowledge_prompt})
+
+        if shared_sync_enabled:
+            shared_context = build_shared_context_prompt(
+                await db.get_shared_chat_messages(
+                    channel_type=incoming.channel_type.value,
+                    chat_id=incoming.chat_id,
+                    limit=12,
+                    exclude_agent_id=agent_id,
+                    exclude_local_conversation_id=conv.id,
+                )
+            )
+            if shared_context:
+                messages.append({"role": "system", "content": shared_context})
+
+        for msg in history:
+            messages.append({"role": msg.role.value, "content": msg.content})
+
+        # Step 6: Call LLM
+        try:
+            result = await llm.chat(messages)
+            response_text = result["content"]
+            tokens_used = result.get("tokens_used", 0)
+        except Exception as e:
+            logger.error(f"LLM call failed: {e}")
+            if _is_auth_configuration_error(e):
+                response_text = await _build_missing_ai_reply(config, str(e))
+            else:
+                response_text = "I'm having trouble responding right now. Please try again."
+            tokens_used = 0
 
     # Step 7: Store response
     assistant_msg = Message(
@@ -503,6 +641,19 @@ async def process_message(incoming: IncomingMessage) -> str:
         },
     )
     await db.add_message(assistant_msg)
+
+    if shared_sync_enabled:
+        await _record_shared_outgoing_for_conversation(
+            conv.id,
+            response_text,
+            metadata={
+                "source": "agent",
+                "user_key": user_key,
+                "knowledge_hits": len(knowledge_hits),
+                "memory_hits": len(memory_hits),
+            },
+            dedupe_key=f"outgoing:{agent_id}:{assistant_msg.id}",
+        )
 
     if (
         config.memory_enabled
@@ -560,6 +711,12 @@ async def send_reply(conversation_id: uuid.UUID, text: str) -> None:
         content=text,
     )
     await db.add_message(msg)
+    await _record_shared_outgoing_for_conversation(
+        conversation_id,
+        text,
+        metadata={"source": "task"},
+        dedupe_key=f"outgoing:{agent_id}:{msg.id}",
+    )
 
 
 async def handle_bus_forward(bus_message: BusMessage) -> None:
