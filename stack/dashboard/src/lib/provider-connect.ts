@@ -1,5 +1,5 @@
 import { pathToFileURL } from "node:url";
-import { readAuthProfiles, writeAuthProfiles, restartGateway } from "@/lib/openclaw-runtime";
+import { readAuthProfiles, writeAuthProfiles, ensureModelForProvider, restartGateway } from "@/lib/openclaw-runtime";
 
 type ProviderId = "openai" | "anthropic";
 
@@ -273,6 +273,7 @@ async function runConnectSession(session: ConnectSessionInternal) {
   }
 
   await saveOAuthCredentials(session.provider, creds);
+  await ensureModelForProvider(session.provider);
   await restartGateway();
 }
 

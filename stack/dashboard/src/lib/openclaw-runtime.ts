@@ -53,6 +53,85 @@ export async function writeAuthProfiles(
   }
 }
 
+const RUNTIME_CONFIG = `${SECRETS_ROOT}/default/.openclaw/openclaw.json`;
+const SOURCE_CONFIG = `${HOME_ROOT}/.openclaw/openclaw.json`;
+
+const DEFAULT_MODELS: Record<string, string> = {
+  openai: "openai-codex/gpt-5.3-codex",
+  anthropic: "anthropic/claude-opus-4-6",
+};
+
+/**
+ * Read the merged openclaw.json config from the runtime secrets path,
+ * falling back to the home-root copy.
+ */
+export async function readOpenClawConfig(): Promise<Record<string, unknown>> {
+  for (const path of [RUNTIME_CONFIG, SOURCE_CONFIG]) {
+    try {
+      const raw = await readFile(path, "utf-8");
+      return JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      // try next path
+    }
+  }
+  return {};
+}
+
+/**
+ * Write the openclaw.json config to both runtime and home-root paths.
+ */
+export async function writeOpenClawConfig(
+  config: Record<string, unknown>,
+): Promise<void> {
+  const json = JSON.stringify(config, null, 2);
+  for (const path of [RUNTIME_CONFIG, SOURCE_CONFIG]) {
+    try {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, json, { mode: 0o644 });
+    } catch {
+      // best effort for source path
+    }
+  }
+}
+
+/**
+ * Ensure openclaw.json has a primary model set for the given provider.
+ * Called after OAuth completes so deployments that started unconfigured
+ * (no credentials at provision time) get the correct model written.
+ */
+export async function ensureModelForProvider(
+  provider: string,
+): Promise<boolean> {
+  const config = await readOpenClawConfig();
+  const agents = (config.agents ?? {}) as Record<string, unknown>;
+  const defaults = (agents.defaults ?? {}) as Record<string, unknown>;
+  const model = (defaults.model ?? {}) as Record<string, unknown>;
+  const current = typeof model.primary === "string" ? model.primary : "";
+
+  // Already has a model matching this provider
+  if (current && current.includes(provider)) return false;
+  if (provider === "openai" && current.includes("openai")) return false;
+
+  const target = DEFAULT_MODELS[provider];
+  if (!target) return false;
+
+  const updated = {
+    ...config,
+    agents: {
+      ...agents,
+      defaults: {
+        ...defaults,
+        model: { ...model, primary: target },
+        ...(provider === "anthropic"
+          ? { models: { [target]: { params: { context1m: true } } } }
+          : {}),
+      },
+    },
+  };
+  await writeOpenClawConfig(updated);
+  return true;
+}
+
 export async function restartGateway(): Promise<void> {
   return new Promise((resolve, reject) => {
     execFile(
