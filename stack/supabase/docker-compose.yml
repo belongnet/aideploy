@@ -5,12 +5,12 @@
 ## Docker Compose or compatible Docker backends.
 ##
 ## Profiles:
-##   default       — core services (db, auth, rest, realtime, storage)
-##   command_center — adds studio, kong, meta, functions
+##   default        — core services (db, auth, rest, realtime, storage, kong)
+##   command_center — adds studio, meta, functions
 ##
 ## Usage:
-##   docker compose up -d                             # core only
-##   docker compose --profile command_center up -d     # full suite
+##   docker compose up -d                              # core runtime + Kong
+##   docker compose --profile command_center up -d     # adds Studio/Meta/Functions
 ##
 
 services:
@@ -42,7 +42,7 @@ services:
     environment:
       GOTRUE_API_HOST: "0.0.0.0"
       GOTRUE_API_PORT: "9999"
-      API_EXTERNAL_URL: "http://localhost:9999"
+      API_EXTERNAL_URL: "${SUPABASE_PUBLIC_URL:-http://localhost:8000}"
       GOTRUE_DB_DRIVER: postgres
       GOTRUE_DB_DATABASE_URL: "postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@supabase-db:5432/postgres"
       GOTRUE_SITE_URL: "${SITE_URL:-http://localhost:3000}"
@@ -163,12 +163,11 @@ services:
     networks:
       - aideploy-runtime
 
-  # ── Kong API Gateway (Command Center profile) ──────────────────
+  # ── Kong API Gateway (Core runtime) ────────────────────────────
   supabase-kong:
     image: kong:2.8.1
     container_name: supabase-kong
     restart: unless-stopped
-    profiles: ["command_center"]
     ports:
       - "8000:8000"
       - "8443:8443"

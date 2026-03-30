@@ -70,6 +70,7 @@ class Database:
         await self.pool.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"')
         await self.pool.execute('CREATE EXTENSION IF NOT EXISTS "pgcrypto"')
         await self.pool.execute("CREATE EXTENSION IF NOT EXISTS vector")
+        await self._ensure_shared_chat_tables()
 
         await self.pool.execute(
             f"""
@@ -177,6 +178,77 @@ class Database:
             """
         )
         await self._ensure_config_row()
+
+    async def _ensure_shared_chat_tables(self) -> None:
+        await self.pool.execute(
+            """
+            CREATE TABLE IF NOT EXISTS public.agent_conversations (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                channel_type TEXT NOT NULL,
+                channel_id TEXT,
+                chat_id TEXT NOT NULL,
+                participant_name TEXT,
+                title TEXT,
+                metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE (channel_type, chat_id)
+            )
+            """
+        )
+        await self.pool.execute(
+            """
+            CREATE TABLE IF NOT EXISTS public.agent_messages (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id TEXT,
+                channel TEXT NOT NULL DEFAULT 'agent_bus',
+                sender_agent TEXT NOT NULL DEFAULT '',
+                payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        await self.pool.execute(
+            """
+            ALTER TABLE public.agent_messages
+                ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'bus',
+                ADD COLUMN IF NOT EXISTS conversation_ref UUID REFERENCES public.agent_conversations(id) ON DELETE SET NULL,
+                ADD COLUMN IF NOT EXISTS agent_id UUID REFERENCES public.agents(id) ON DELETE SET NULL,
+                ADD COLUMN IF NOT EXISTS agent_name TEXT,
+                ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'event',
+                ADD COLUMN IF NOT EXISTS channel_type TEXT,
+                ADD COLUMN IF NOT EXISTS channel_id TEXT,
+                ADD COLUMN IF NOT EXISTS chat_id TEXT,
+                ADD COLUMN IF NOT EXISTS local_conversation_id UUID,
+                ADD COLUMN IF NOT EXISTS message_role TEXT,
+                ADD COLUMN IF NOT EXISTS content TEXT,
+                ADD COLUMN IF NOT EXISTS sender_name TEXT,
+                ADD COLUMN IF NOT EXISTS sender_id TEXT,
+                ADD COLUMN IF NOT EXISTS external_message_id TEXT,
+                ADD COLUMN IF NOT EXISTS dedupe_key TEXT,
+                ADD COLUMN IF NOT EXISTS attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
+                ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+            """
+        )
+        await self.pool.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_agent_messages_chat_lookup
+            ON public.agent_messages(kind, channel_type, chat_id, created_at DESC)
+            """
+        )
+        await self.pool.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_agent_messages_conversation_ref
+            ON public.agent_messages(conversation_ref, created_at DESC)
+            """
+        )
+        await self.pool.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_messages_dedupe_key
+            ON public.agent_messages(dedupe_key)
+            WHERE dedupe_key IS NOT NULL
+            """
+        )
 
     async def _ensure_config_row(self) -> None:
         row = await self.pool.fetchrow(
@@ -476,6 +548,188 @@ class Database:
             f"DELETE FROM {self._t('conversations')} WHERE id = $1",
             conversation_id,
         )
+
+    # ── Shared Chat State ────────────────────────────────────
+
+    async def upsert_shared_conversation(
+        self,
+        *,
+        channel_type: str,
+        channel_id: Optional[str],
+        chat_id: str,
+        participant_name: Optional[str],
+        title: Optional[str],
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> uuid.UUID:
+        row = await self.pool.fetchrow(
+            """
+            INSERT INTO public.agent_conversations (
+                channel_type,
+                channel_id,
+                chat_id,
+                participant_name,
+                title,
+                metadata
+            )
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (channel_type, chat_id) DO UPDATE SET
+                channel_id = COALESCE(EXCLUDED.channel_id, public.agent_conversations.channel_id),
+                participant_name = COALESCE(EXCLUDED.participant_name, public.agent_conversations.participant_name),
+                title = COALESCE(EXCLUDED.title, public.agent_conversations.title),
+                metadata = COALESCE(EXCLUDED.metadata, public.agent_conversations.metadata),
+                updated_at = NOW()
+            RETURNING id
+            """,
+            channel_type,
+            channel_id,
+            chat_id,
+            participant_name,
+            title,
+            json.dumps(metadata or {}),
+        )
+        return row["id"]
+
+    async def add_shared_message(
+        self,
+        *,
+        kind: str,
+        direction: str,
+        channel: str,
+        channel_type: str,
+        channel_id: Optional[str],
+        chat_id: str,
+        message_role: str,
+        content: str,
+        user_id: Optional[str] = None,
+        agent_id: Optional[uuid.UUID] = None,
+        agent_name: Optional[str] = None,
+        conversation_ref: Optional[uuid.UUID] = None,
+        local_conversation_id: Optional[uuid.UUID] = None,
+        sender_name: Optional[str] = None,
+        sender_id: Optional[str] = None,
+        external_message_id: Optional[str] = None,
+        dedupe_key: Optional[str] = None,
+        attachments: Optional[list[dict[str, Any]]] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> str:
+        payload = {
+            "content": content,
+            "attachments": attachments or [],
+            "metadata": metadata or {},
+        }
+        row = await self.pool.fetchrow(
+            """
+            INSERT INTO public.agent_messages (
+                user_id,
+                channel,
+                sender_agent,
+                payload,
+                kind,
+                conversation_ref,
+                agent_id,
+                agent_name,
+                direction,
+                channel_type,
+                channel_id,
+                chat_id,
+                local_conversation_id,
+                message_role,
+                content,
+                sender_name,
+                sender_id,
+                external_message_id,
+                dedupe_key,
+                attachments,
+                metadata
+            )
+            VALUES (
+                $1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10,
+                $11, $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb, $21::jsonb
+            )
+            ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL DO UPDATE SET
+                user_id = COALESCE(EXCLUDED.user_id, public.agent_messages.user_id),
+                payload = EXCLUDED.payload,
+                conversation_ref = COALESCE(EXCLUDED.conversation_ref, public.agent_messages.conversation_ref),
+                agent_id = COALESCE(EXCLUDED.agent_id, public.agent_messages.agent_id),
+                agent_name = COALESCE(EXCLUDED.agent_name, public.agent_messages.agent_name),
+                local_conversation_id = COALESCE(EXCLUDED.local_conversation_id, public.agent_messages.local_conversation_id),
+                content = COALESCE(EXCLUDED.content, public.agent_messages.content),
+                sender_name = COALESCE(EXCLUDED.sender_name, public.agent_messages.sender_name),
+                sender_id = COALESCE(EXCLUDED.sender_id, public.agent_messages.sender_id),
+                attachments = EXCLUDED.attachments,
+                metadata = EXCLUDED.metadata
+            RETURNING id::text
+            """,
+            user_id,
+            channel,
+            str(agent_id) if agent_id else "",
+            json.dumps(payload),
+            kind,
+            conversation_ref,
+            agent_id,
+            agent_name,
+            direction,
+            channel_type,
+            channel_id,
+            chat_id,
+            local_conversation_id,
+            message_role,
+            content,
+            sender_name,
+            sender_id,
+            external_message_id,
+            dedupe_key,
+            json.dumps(attachments or []),
+            json.dumps(metadata or {}),
+        )
+        return row["id"]
+
+    async def get_shared_chat_messages(
+        self,
+        *,
+        channel_type: str,
+        chat_id: str,
+        limit: int = 25,
+        exclude_agent_id: Optional[uuid.UUID] = None,
+        exclude_local_conversation_id: Optional[uuid.UUID] = None,
+    ) -> list[dict[str, Any]]:
+        rows = await self.pool.fetch(
+            """
+            SELECT
+                id,
+                agent_id,
+                agent_name,
+                direction,
+                message_role,
+                content,
+                sender_name,
+                sender_id,
+                external_message_id,
+                attachments,
+                metadata,
+                created_at
+            FROM public.agent_messages
+            WHERE kind = 'chat'
+              AND channel_type = $1
+              AND chat_id = $2
+              AND NOT (
+                $4::uuid IS NOT NULL
+                AND $5::uuid IS NOT NULL
+                AND agent_id IS NOT DISTINCT FROM $4
+                AND local_conversation_id IS NOT DISTINCT FROM $5
+              )
+            ORDER BY created_at DESC
+            LIMIT $3
+            """,
+            channel_type,
+            chat_id,
+            limit,
+            exclude_agent_id,
+            exclude_local_conversation_id,
+        )
+        messages = [dict(row) for row in rows]
+        messages.reverse()
+        return messages
 
     # ── Messages ─────────────────────────────────────────────
 
