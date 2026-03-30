@@ -4,21 +4,22 @@
  * First-run setup page for AI provider authentication.
  *
  * After the provisioner deploys the stack, consumer-login AI providers
- * (OpenAI/Anthropic) need the user to sign in on their own server.
- * This page guides them through extracting a session token for each
- * provider and stores it locally in Postgres. The token never leaves
- * the user's VM.
- *
- * For OpenAI: user signs into chatgpt.com, visits the session endpoint,
- * copies the accessToken, and pastes it here.
- *
- * For Anthropic: user signs into claude.ai, opens DevTools cookies,
- * copies the sessionKey, and pastes it here.
+ * (OpenAI/Anthropic) need the user to complete a browser-based
+ * connection flow on their own device. This page generates the link,
+ * tracks progress, and stores the resulting credentials locally.
  */
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { fetchSetupStatus, submitProviderToken, completeSetup } from "@/lib/api";
+import {
+  cancelProviderConnect,
+  completeSetup,
+  fetchProviderConnectSession,
+  fetchSetupStatus,
+  startProviderConnect,
+  submitProviderConnect,
+  type ProviderConnectSession,
+} from "@/lib/api";
 
 /* ------------------------------------------------------------------ */
 /*  Provider setup instructions                                        */
@@ -29,37 +30,36 @@ const PROVIDER_SETUP: Record<
   {
     label: string;
     color: string;
-    loginUrl: string;
-    loginLabel: string;
+    hint: string;
+    buttonLabel: string;
     steps: string[];
-    placeholder: string;
   }
 > = {
   openai: {
     label: "ChatGPT",
     color: "#10A37F",
-    loginUrl: "https://chatgpt.com/auth/login",
-    loginLabel: "Open ChatGPT",
+    hint:
+      "Generate a browser link, sign in on your own device, then paste the localhost redirect URL or code back here.",
+    buttonLabel: "New Browser Link",
     steps: [
-      "Click the button below to open ChatGPT and sign in",
-      "After signing in, visit chatgpt.com/api/auth/session in the same browser",
-      'Copy the accessToken value (the long string after "accessToken":")',
-      "Paste it below and click Connect",
+      "Click the button below to generate a one-time ChatGPT browser link",
+      "Open that link in your browser and sign in on your own device",
+      "When ChatGPT redirects you to localhost, copy the full URL from the address bar",
+      "Paste that URL or code below to finish the connection",
     ],
-    placeholder: "Paste your accessToken here",
   },
   anthropic: {
     label: "Claude",
     color: "#D4A574",
-    loginUrl: "https://claude.ai/login",
-    loginLabel: "Open Claude",
+    hint:
+      "Generate a browser link, sign in on your own device, then paste the Claude redirect URL or one-time code back here.",
+    buttonLabel: "New Browser Link",
     steps: [
-      "Click the button below to open Claude and sign in",
-      "Open your browser DevTools (F12 or Cmd+Option+I)",
-      "Go to Application > Cookies > claude.ai and copy the sessionKey value",
-      "Paste it below and click Connect",
+      "Click the button below to generate a one-time Claude browser link",
+      "Open that link in your browser and sign in on your own device",
+      "Claude may finish by showing a redirect URL or a one-time code",
+      "Paste that redirect URL or code below to finish the connection",
     ],
-    placeholder: "Paste your sessionKey here",
   },
 };
 
@@ -74,6 +74,14 @@ interface ProviderStatus {
   connected: boolean;
 }
 
+function extractSessionError(session: ProviderConnectSession | null): string {
+  const lines = (session?.logs || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines[lines.length - 1] || "Could not complete the connection. Try again.";
+}
+
 /* ------------------------------------------------------------------ */
 /*  Setup Page                                                         */
 /* ------------------------------------------------------------------ */
@@ -82,7 +90,8 @@ export default function SetupPage() {
   const router = useRouter();
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tokenInputs, setTokenInputs] = useState<Record<string, string>>({});
+  const [draftInputs, setDraftInputs] = useState<Record<string, string>>({});
+  const [sessions, setSessions] = useState<Record<string, ProviderConnectSession | null>>({});
   const [submitting, setSubmitting] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [finishing, setFinishing] = useState(false);
@@ -107,11 +116,72 @@ export default function SetupPage() {
     loadStatus();
   }, [loadStatus]);
 
-  /** Submit token for a provider */
-  const handleConnect = useCallback(
+  useEffect(() => {
+    const activeProviders = Object.entries(sessions).filter(([, session]) =>
+      session &&
+      (session.status === "running" || session.status === "awaiting_input")
+    );
+    if (activeProviders.length === 0) return;
+
+    const interval = window.setInterval(async () => {
+      const updates = await Promise.all(
+        activeProviders.map(async ([providerId]) => {
+          try {
+            const result = await fetchProviderConnectSession(
+              providerId as "openai" | "anthropic"
+            );
+            return [providerId, result.session] as const;
+          } catch {
+            return [providerId, sessions[providerId] ?? null] as const;
+          }
+        })
+      );
+
+      const nextSessions = Object.fromEntries(updates);
+      setSessions((prev) => ({ ...prev, ...nextSessions }));
+
+      const completedProviders = updates.filter(([, session]) => session?.status === "completed");
+      if (completedProviders.length > 0) {
+        setErrors((prev) => {
+          const next = { ...prev };
+          completedProviders.forEach(([providerId]) => {
+            delete next[providerId];
+          });
+          return next;
+        });
+        await loadStatus();
+      }
+    }, 2000);
+
+    return () => window.clearInterval(interval);
+  }, [loadStatus, sessions]);
+
+  const handleStartConnect = useCallback(async (providerId: string) => {
+    setSubmitting((prev) => ({ ...prev, [providerId]: true }));
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next[providerId];
+      return next;
+    });
+
+    try {
+      const result = await startProviderConnect(providerId as "openai" | "anthropic");
+      setSessions((prev) => ({ ...prev, [providerId]: result.session }));
+    } catch (error) {
+      setErrors((prev) => ({
+        ...prev,
+        [providerId]:
+          error instanceof Error ? error.message : "Could not start the browser link.",
+      }));
+    } finally {
+      setSubmitting((prev) => ({ ...prev, [providerId]: false }));
+    }
+  }, []);
+
+  const handleSubmitConnect = useCallback(
     async (providerId: string) => {
-      const token = (tokenInputs[providerId] || "").trim();
-      if (!token) return;
+      const input = (draftInputs[providerId] || "").trim();
+      if (!input) return;
 
       setSubmitting((prev) => ({ ...prev, [providerId]: true }));
       setErrors((prev) => {
@@ -121,34 +191,38 @@ export default function SetupPage() {
       });
 
       try {
-        const result = await submitProviderToken(providerId, token);
-        if (result.ok) {
-          setProviders((prev) =>
-            prev.map((p) =>
-              p.id === providerId ? { ...p, connected: true } : p
-            )
-          );
-        } else {
+        const result = await submitProviderConnect(
+          providerId as "openai" | "anthropic",
+          input
+        );
+        setSessions((prev) => ({ ...prev, [providerId]: result.session }));
+
+        if (result.session?.status === "completed") {
+          setDraftInputs((prev) => ({ ...prev, [providerId]: "" }));
+          await loadStatus();
+        } else if (result.session?.status === "error") {
           setErrors((prev) => ({
             ...prev,
-            [providerId]: "Token is invalid or expired. Please try again.",
+            [providerId]: extractSessionError(result.session),
           }));
         }
-      } catch {
+      } catch (error) {
         setErrors((prev) => ({
           ...prev,
-          [providerId]: "Could not connect. Please try again.",
+          [providerId]:
+            error instanceof Error ? error.message : "Could not submit that code.",
         }));
       } finally {
         setSubmitting((prev) => ({ ...prev, [providerId]: false }));
       }
     },
-    [tokenInputs]
+    [draftInputs, loadStatus]
   );
 
   /** All consumer providers connected — finish setup */
   const consumerProviders = providers.filter((p) => p.authMethod === "consumer");
-  const allConnected = consumerProviders.length > 0 && consumerProviders.every((p) => p.connected);
+  const allConnected =
+    consumerProviders.length > 0 && consumerProviders.every((p) => p.connected);
 
   const handleFinish = useCallback(async () => {
     setFinishing(true);
@@ -187,8 +261,8 @@ export default function SetupPage() {
           Connect your AI accounts
         </h1>
         <p className="text-sm text-gray-500 leading-relaxed max-w-md mx-auto">
-          Sign into your AI subscriptions below. Your credentials are stored
-          locally on this server and never leave your machine.
+          Generate a browser link, sign in on your own device, then paste the
+          returned redirect or code here. Your credentials stay on this server.
         </p>
       </div>
 
@@ -200,6 +274,10 @@ export default function SetupPage() {
 
           const isConnected = provider.connected;
           const isSubmitting = submitting[provider.id] === true;
+          const session = sessions[provider.id] ?? null;
+          const waitingForInput = session?.status === "awaiting_input";
+          const browserLinkReady = Boolean(session?.url);
+          const canSubmit = Boolean((draftInputs[provider.id] || "").trim());
 
           return (
             <div
@@ -222,9 +300,7 @@ export default function SetupPage() {
                   <h2 className="text-base font-semibold text-gray-900">
                     {setup.label}
                   </h2>
-                  <p className="text-xs text-gray-500">
-                    Uses your {setup.label} subscription
-                  </p>
+                  <p className="text-xs text-gray-500">{setup.hint}</p>
                 </div>
                 {isConnected && (
                   <div className="flex items-center gap-1.5 text-green-700">
@@ -249,7 +325,6 @@ export default function SetupPage() {
               {/* Setup steps — only shown when not connected */}
               {!isConnected && (
                 <div className="space-y-4">
-                  {/* Steps */}
                   <ol className="space-y-2">
                     {setup.steps.map((step, i) => (
                       <li
@@ -268,18 +343,17 @@ export default function SetupPage() {
                     ))}
                   </ol>
 
-                  {/* Open provider button */}
-                  <a
-                    href={setup.loginUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center justify-center gap-2 w-full py-3 rounded-xl
-                               font-medium text-sm text-white transition-all"
+                  <button
+                    onClick={() => handleStartConnect(provider.id)}
+                    disabled={isSubmitting}
+                    className="inline-flex items-center justify-center gap-2 w-full py-4 rounded-2xl
+                               font-semibold text-base text-white transition-all shadow-lg hover:shadow-xl
+                               disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{ backgroundColor: setup.color }}
                   >
-                    {setup.loginLabel}
+                    {isSubmitting ? "Generating link..." : setup.buttonLabel}
                     <svg
-                      className="w-4 h-4"
+                      className="w-5 h-5"
                       fill="none"
                       viewBox="0 0 24 24"
                       stroke="currentColor"
@@ -288,54 +362,110 @@ export default function SetupPage() {
                       <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
-                        d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                        d="M13.5 4.5H19.5M19.5 4.5V10.5M19.5 4.5L9 15"
                       />
                     </svg>
-                  </a>
+                  </button>
 
-                  {/* Token input */}
+                  {browserLinkReady && (
+                    <div className="rounded-2xl border border-brand-100 bg-brand-50 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-700">
+                        Step 2
+                      </p>
+                      <p className="mt-2 text-sm text-gray-700">
+                        Open this one-time browser link on your own device, then
+                        come back here with the redirect URL or code.
+                      </p>
+                      <a
+                        href={session?.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-3 inline-flex w-full items-center justify-center rounded-xl border border-brand-200 bg-white px-4 py-3 text-sm font-medium text-brand-700 transition hover:bg-brand-50"
+                      >
+                        Open Browser Link
+                      </a>
+                      <p className="mt-3 break-all rounded-xl bg-white px-3 py-2 text-xs text-gray-500">
+                        {session?.url}
+                      </p>
+                    </div>
+                  )}
+
                   <div className="flex flex-col sm:flex-row gap-2">
                     <input
-                      type="password"
-                      value={tokenInputs[provider.id] || ""}
+                      type="text"
+                      value={draftInputs[provider.id] || ""}
                       onChange={(e) =>
-                        setTokenInputs((prev) => ({
+                        setDraftInputs((prev) => ({
                           ...prev,
                           [provider.id]: e.target.value,
                         }))
                       }
                       onKeyDown={(e) => {
-                        if (e.key === "Enter") handleConnect(provider.id);
+                        if (e.key === "Enter") handleSubmitConnect(provider.id);
                       }}
-                      placeholder={setup.placeholder}
+                      placeholder={
+                        session?.inputPlaceholder ||
+                        "Paste the redirect URL or one-time code"
+                      }
                       className={`flex-1 px-4 py-2.5 rounded-xl border text-sm outline-none transition-all
                         focus:ring-2 focus:ring-brand-500 focus:border-brand-500
                         ${errors[provider.id] ? "border-red-300 bg-red-50" : "border-gray-300 bg-white"}
                       `}
                     />
                     <button
-                      onClick={() => handleConnect(provider.id)}
-                      disabled={
-                        isSubmitting ||
-                        !(tokenInputs[provider.id] || "").trim()
-                      }
+                      onClick={() => handleSubmitConnect(provider.id)}
+                      disabled={isSubmitting || !canSubmit}
                       className="px-5 py-2.5 bg-gray-900 text-white text-sm font-medium
                                  rounded-xl hover:bg-gray-800 transition-all
                                  disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
                     >
-                      {isSubmitting ? "Verifying..." : "Connect"}
+                      {isSubmitting
+                        ? "Saving..."
+                        : waitingForInput
+                          ? "Submit Code"
+                          : "Submit"}
                     </button>
                   </div>
+
+                  {session?.logs && (
+                    <div className="rounded-2xl bg-gray-950 px-4 py-3 text-xs text-gray-200">
+                      <p className="font-semibold uppercase tracking-[0.18em] text-gray-400">
+                        Connect Log
+                      </p>
+                      <pre className="mt-2 whitespace-pre-wrap break-words font-mono">
+                        {session.logs}
+                      </pre>
+                    </div>
+                  )}
 
                   {/* Error */}
                   {errors[provider.id] && (
                     <p className="text-sm text-red-600">{errors[provider.id]}</p>
                   )}
 
-                  {/* Privacy note */}
                   <p className="text-xs text-gray-400">
-                    This token is stored locally on this server and never sent anywhere else.
+                    If you generate a fresh link, the previous unfinished browser
+                    flow is replaced. The final credentials stay on this server.
                   </p>
+
+                  {session &&
+                    (session.status === "running" || session.status === "awaiting_input") && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await cancelProviderConnect(
+                            provider.id as "openai" | "anthropic"
+                          );
+                          setSessions((prev) => ({
+                            ...prev,
+                            [provider.id]: null,
+                          }));
+                        }}
+                        className="text-sm font-medium text-gray-500 hover:text-gray-700"
+                      >
+                        Cancel this connect flow
+                      </button>
+                    )}
                 </div>
               )}
             </div>

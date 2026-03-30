@@ -157,6 +157,7 @@ function AgentCard({ agent }: { agent: Agent }) {
   const channels = agent.channels ?? [];
   const messagesCount = agent.messages_today ?? 0;
   const isHealthy = agent.status === "running" && agent.healthy !== false;
+  const needsAiSetup = agent.ai_connected === false;
 
   return (
     <Link
@@ -185,6 +186,17 @@ function AgentCard({ agent }: { agent: Agent }) {
         <span className="text-xs text-gray-500 truncate">{model}</span>
       </div>
 
+      {needsAiSetup && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
+            Connect AI First
+          </p>
+          <p className="mt-1 text-sm text-amber-900">
+            This agent will throw setup errors in chat until {providerLabel(provider)} is connected.
+          </p>
+        </div>
+      )}
+
       {/* Channel icons + message count */}
       <div className="flex items-center justify-between border-t border-gray-100 pt-3">
         <div className="flex gap-1.5">
@@ -207,6 +219,20 @@ function AgentCard({ agent }: { agent: Agent }) {
           <span className="text-xs font-normal text-gray-400">today</span>
         </span>
       </div>
+
+      {needsAiSetup && agent.setup_url && (
+        <button
+          type="button"
+          className="btn-primary w-full"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            window.open(agent.setup_url, "_blank", "noopener,noreferrer");
+          }}
+        >
+          Connect AI Now
+        </button>
+      )}
     </Link>
   );
 }

@@ -158,6 +158,36 @@ export const fetchChannels = () =>
 export const addChannel = (channel: { type: string; token: string }) =>
   request<{ id: string }>("/api/channels", {
     method: "POST",
+    body: JSON.stringify({
+      type: channel.type,
+      name:
+        channel.type === "telegram"
+          ? "Telegram"
+          : channel.type === "whatsapp"
+            ? "WhatsApp"
+            : channel.type === "slack"
+              ? "Slack"
+              : channel.type,
+      status: "connected",
+      config:
+        channel.type === "whatsapp"
+          ? { accessToken: channel.token }
+          : { botToken: channel.token },
+    }),
+  });
+
+export const connectTelegramChannel = (channel: {
+  token: string;
+  ownerChatId: string;
+  ownerUserId?: string;
+  name?: string;
+}) =>
+  request<{
+    success: boolean;
+    promptTriggered: boolean;
+    promptResult: Record<string, unknown> | null;
+  }>("/dashboard-api/channels/telegram/connect", {
+    method: "POST",
     body: JSON.stringify(channel),
   });
 
@@ -245,18 +275,63 @@ export const fetchSetupStatus = () =>
       authMethod: "consumer" | "api_key";
       connected: boolean;
     }[];
-  }>("/api/setup/status");
+  }>("/dashboard-api/setup/status");
 
-/** Submit a consumer session token for a provider (stored locally in Postgres) */
-export const submitProviderToken = (
-  provider: string,
-  token: string
+export interface ProviderConnectSession {
+  id: string;
+  provider: "openai" | "anthropic";
+  status:
+    | "idle"
+    | "running"
+    | "awaiting_input"
+    | "completed"
+    | "error"
+    | "cancelled";
+  url: string;
+  logs: string;
+  inputLabel: string;
+  inputPlaceholder: string;
+  startedAt: number;
+  finishedAt: number;
+}
+
+export const startProviderConnect = (provider: "openai" | "anthropic") =>
+  request<{ success: boolean; session: ProviderConnectSession | null }>(
+    `/dashboard-api/providers/${provider}/connect/start`,
+    {
+      method: "POST",
+    },
+  );
+
+export const submitProviderConnect = (
+  provider: "openai" | "anthropic",
+  input: string,
 ) =>
-  request<{ ok: boolean; connectedAs?: string }>("/api/setup/connect", {
-    method: "POST",
-    body: JSON.stringify({ provider, token }),
-  });
+  request<{ success: boolean; session: ProviderConnectSession | null }>(
+    `/dashboard-api/providers/${provider}/connect/submit`,
+    {
+      method: "POST",
+      body: JSON.stringify({ input }),
+    },
+  );
+
+export const fetchProviderConnectSession = (
+  provider: "openai" | "anthropic",
+) =>
+  request<{ success: boolean; session: ProviderConnectSession | null }>(
+    `/dashboard-api/providers/${provider}/connect/session`,
+  );
+
+export const cancelProviderConnect = (provider: "openai" | "anthropic") =>
+  request<{ success: boolean; session: ProviderConnectSession | null }>(
+    `/dashboard-api/providers/${provider}/connect/cancel`,
+    {
+      method: "POST",
+    },
+  );
 
 /** Mark first-run setup as complete */
 export const completeSetup = () =>
-  request<{ ok: boolean }>("/api/setup/complete", { method: "POST" });
+  request<{ ok: boolean }>("/dashboard-api/setup/complete", {
+    method: "POST",
+  });

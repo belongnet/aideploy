@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { fetchChannels, addChannel, removeChannel } from "@/lib/api";
+import {
+  fetchChannels,
+  addChannel,
+  connectTelegramChannel,
+  removeChannel,
+} from "@/lib/api";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -38,7 +43,8 @@ const CHANNEL_META: Record<
       'Open Telegram and search for "@BotFather".',
       'Send the command "/newbot" and follow the prompts.',
       "BotFather will give you a token (a long string of letters and numbers).",
-      "Copy that token and paste it below.",
+      "Open your bot in Telegram and send it a private message from the owner account that should receive setup prompts.",
+      "Paste the bot token and that owner private chat ID below.",
     ],
     placeholder: "Paste your Telegram bot token here",
     badge: "Fastest setup",
@@ -86,7 +92,10 @@ export default function ChannelsPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [addType, setAddType] = useState<string | null>(null);
   const [token, setToken] = useState("");
+  const [ownerChatId, setOwnerChatId] = useState("");
   const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState("");
+  const [saveError, setSaveError] = useState("");
   const [removeConfirmId, setRemoveConfirmId] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
 
@@ -116,15 +125,40 @@ export default function ChannelsPage() {
 
   const handleAdd = async () => {
     if (!addType || !token.trim()) return;
+    if (addType === "telegram" && !ownerChatId.trim()) return;
     setSaving(true);
+    setSaveError("");
+    setSaveMessage("");
     try {
-      await addChannel({ type: addType, token: token.trim() });
+      if (addType === "telegram") {
+        const result = await connectTelegramChannel({
+          token: token.trim(),
+          ownerChatId: ownerChatId.trim(),
+        });
+        const promptError =
+          result.promptResult &&
+          typeof result.promptResult.error === "string"
+            ? result.promptResult.error
+            : "";
+        setSaveMessage(
+          result.promptTriggered
+            ? "Telegram is connected. If AI is still missing, the bot just sent setup options to that owner chat."
+            : promptError
+              ? "Telegram is connected and the owner chat was saved, but I could not send the in-chat setup prompt yet. The bot will try again the next time startup prompting runs."
+              : "Telegram is connected. If AI still needs setup, the bot will DM the saved owner chat the next time the setup prompt is allowed.",
+        );
+      } else {
+        await addChannel({ type: addType, token: token.trim() });
+      }
       setShowAdd(false);
       setAddType(null);
       setToken("");
+      setOwnerChatId("");
       load();
-    } catch {
-      /* Silent fail */
+    } catch (error) {
+      setSaveError(
+        error instanceof Error ? error.message : "Could not connect that app.",
+      );
     } finally {
       setSaving(false);
     }
@@ -207,6 +241,9 @@ export default function ChannelsPage() {
               setShowAdd(true);
               setAddType(null);
               setToken("");
+              setOwnerChatId("");
+              setSaveMessage("");
+              setSaveError("");
             }}
             className="btn-primary"
           >
@@ -244,7 +281,13 @@ export default function ChannelsPage() {
                 return (
                   <button
                     key={type}
-                    onClick={() => setAddType(type)}
+                    onClick={() => {
+                      setAddType(type);
+                      setToken("");
+                      setOwnerChatId("");
+                      setSaveMessage("");
+                      setSaveError("");
+                    }}
                     className="card text-left hover:border-brand-300 hover:shadow-md transition cursor-pointer min-h-touch"
                   >
                     <div className="flex items-center gap-2 mb-2">
@@ -330,9 +373,46 @@ export default function ChannelsPage() {
                 />
               </div>
 
+              {addType === "telegram" && (
+                <div className="space-y-2">
+                  <div>
+                    <label
+                      htmlFor="telegram-owner-chat-id"
+                      className="block text-sm font-medium text-gray-700 mb-1.5"
+                    >
+                      Verified owner chat ID
+                    </label>
+                    <input
+                      id="telegram-owner-chat-id"
+                      type="text"
+                      value={ownerChatId}
+                      onChange={(e) => setOwnerChatId(e.target.value)}
+                      placeholder="Paste the Telegram private chat ID"
+                      className="input-field font-mono text-sm"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    This private Telegram chat gets startup notices and the
+                    in-chat AI setup prompt before the bot can reply. If AI is
+                    not configured yet, the bot will proactively message this
+                    saved owner chat.
+                  </p>
+                </div>
+              )}
+
+              {saveError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {saveError}
+                </div>
+              )}
+
               <button
                 onClick={handleAdd}
-                disabled={saving || !token.trim()}
+                disabled={
+                  saving ||
+                  !token.trim() ||
+                  (addType === "telegram" && !ownerChatId.trim())
+                }
                 className="btn-primary"
               >
                 {saving ? (
@@ -464,11 +544,20 @@ export default function ChannelsPage() {
               setShowAdd(true);
               setAddType(null);
               setToken("");
+              setOwnerChatId("");
+              setSaveMessage("");
+              setSaveError("");
             }}
             className="btn-primary mt-4 text-sm"
           >
             Connect Your First App
           </button>
+        </div>
+      )}
+
+      {saveMessage && (
+        <div className="rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-900">
+          {saveMessage}
         </div>
       )}
     </div>
