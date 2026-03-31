@@ -60,6 +60,163 @@ const DEFAULT_MODELS: Record<string, string> = {
   openai: "openai-codex/gpt-5.3-codex",
   anthropic: "anthropic/claude-opus-4-6",
 };
+const DEFAULT_MEDIA_TOOL_CONFIG = {
+  media: {
+    concurrency: 2,
+    audio: {
+      enabled: true,
+      maxBytes: 20 * 1024 * 1024,
+    },
+  },
+} as const;
+const DEFAULT_EXEC_CONFIG = {
+  host: "gateway",
+  security: "full",
+  ask: "off",
+} as const;
+const DEFAULT_ELEVATED_DEFAULT = "full";
+const DEFAULT_OPENAI_AUDIO_TRANSCRIPTION_MODEL = {
+  provider: "openai",
+  model: "gpt-4o-mini-transcribe",
+} as const;
+const DEFAULT_WHISPER_AUDIO_TRANSCRIPTION_MODEL = {
+  type: "cli",
+  command: "whisper",
+  args: ["--model", "base", "{{MediaPath}}"],
+  timeoutSeconds: 45,
+} as const;
+
+function normalizeAllowedSenders(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  const out: string[] = [];
+  for (const value of values) {
+    const item = typeof value === "string" ? value.trim() : String(value ?? "").trim();
+    if (item && !out.includes(item)) out.push(item);
+  }
+  return out;
+}
+
+function configuredPrimaryModelFromConfig(
+  config: Record<string, unknown>,
+): string {
+  const agents = (config.agents ?? {}) as Record<string, unknown>;
+  const defaults = (agents.defaults ?? {}) as Record<string, unknown>;
+  const model = (defaults.model ?? {}) as Record<string, unknown>;
+  return typeof model.primary === "string" ? model.primary.trim() : "";
+}
+
+function inferModelProvider(model: string): string {
+  const raw = model.trim().toLowerCase();
+  if (!raw) return "";
+  const provider = raw.split("/", 1)[0]?.trim() ?? "";
+  if (provider === "openai-codex") return "openai";
+  return provider;
+}
+
+function normalizeManagedAudioModels(
+  existingModels: unknown,
+  primaryModel: string,
+): Record<string, unknown>[] {
+  const next = Array.isArray(existingModels)
+    ? existingModels
+        .filter(
+          (entry): entry is Record<string, unknown> =>
+            Boolean(entry) &&
+            typeof entry === "object" &&
+            !Array.isArray(entry),
+        )
+        .map((entry) => ({ ...entry }))
+    : [];
+  if (
+    inferModelProvider(primaryModel) === "openai" &&
+    !next.some((entry) => String(entry.provider ?? "").trim() === "openai")
+  ) {
+    next.unshift({ ...DEFAULT_OPENAI_AUDIO_TRANSCRIPTION_MODEL });
+  }
+  if (
+    !next.some((entry) => {
+      const type = String(entry.type ?? "cli").trim();
+      return type === "cli" && String(entry.command ?? "").trim() === "whisper";
+    })
+  ) {
+    next.push({ ...DEFAULT_WHISPER_AUDIO_TRANSCRIPTION_MODEL });
+  }
+  return next;
+}
+
+function applyManagedCommandConfig(
+  config: Record<string, unknown>,
+  telegramAllowFrom?: string[],
+): Record<string, unknown> {
+  const next = { ...config };
+  const agents = ((next.agents ?? {}) as Record<string, unknown>);
+  const defaults = ((agents.defaults ?? {}) as Record<string, unknown>);
+  if (typeof defaults.elevatedDefault !== "string" || !defaults.elevatedDefault.trim()) {
+    defaults.elevatedDefault = DEFAULT_ELEVATED_DEFAULT;
+  }
+
+  const tools = ((next.tools ?? {}) as Record<string, unknown>);
+  const media = ((tools.media ?? {}) as Record<string, unknown>);
+  if (
+    typeof media.concurrency !== "number" ||
+    media.concurrency < 1
+  ) {
+    media.concurrency = DEFAULT_MEDIA_TOOL_CONFIG.media.concurrency;
+  }
+  const audio = ((media.audio ?? {}) as Record<string, unknown>);
+  if (typeof audio.enabled !== "boolean") {
+    audio.enabled = DEFAULT_MEDIA_TOOL_CONFIG.media.audio.enabled;
+  }
+  if (typeof audio.maxBytes !== "number" || audio.maxBytes < 1) {
+    audio.maxBytes = DEFAULT_MEDIA_TOOL_CONFIG.media.audio.maxBytes;
+  }
+  audio.models = normalizeManagedAudioModels(
+    audio.models,
+    configuredPrimaryModelFromConfig(next),
+  );
+  media.audio = audio;
+  tools.media = media;
+
+  const execConfig = ((tools.exec ?? {}) as Record<string, unknown>);
+  if (typeof execConfig.host !== "string" || !execConfig.host.trim()) {
+    execConfig.host = DEFAULT_EXEC_CONFIG.host;
+  }
+  if (typeof execConfig.security !== "string" || !execConfig.security.trim()) {
+    execConfig.security = DEFAULT_EXEC_CONFIG.security;
+  }
+  if (typeof execConfig.ask !== "string" || !execConfig.ask.trim()) {
+    execConfig.ask = DEFAULT_EXEC_CONFIG.ask;
+  }
+
+  const elevated = ((tools.elevated ?? {}) as Record<string, unknown>);
+  if (typeof elevated.enabled !== "boolean") {
+    elevated.enabled = true;
+  }
+  const allowFromRaw = elevated.allowFrom;
+  const allowFrom =
+    allowFromRaw && typeof allowFromRaw === "object" && !Array.isArray(allowFromRaw)
+      ? { ...(allowFromRaw as Record<string, unknown>) }
+      : {};
+  const normalizedTelegramAllowFrom = normalizeAllowedSenders(
+    telegramAllowFrom ??
+      ((((next.channels ?? {}) as Record<string, unknown>).telegram as
+        | { allowFrom?: unknown }
+        | undefined)?.allowFrom),
+  );
+  if (normalizedTelegramAllowFrom.length > 0) {
+    allowFrom.telegram = normalizedTelegramAllowFrom;
+  } else {
+    delete allowFrom.telegram;
+  }
+
+  elevated.allowFrom = allowFrom;
+  tools.exec = execConfig;
+  tools.elevated = elevated;
+  agents.defaults = defaults;
+  next.agents = agents;
+  next.tools = tools;
+  return next;
+}
 
 /**
  * Read the merged openclaw.json config from the runtime secrets path,
@@ -82,8 +239,9 @@ export async function readOpenClawConfig(): Promise<Record<string, unknown>> {
  */
 export async function writeOpenClawConfig(
   config: Record<string, unknown>,
+  telegramAllowFrom?: string[],
 ): Promise<void> {
-  const json = JSON.stringify(config, null, 2);
+  const json = JSON.stringify(applyManagedCommandConfig(config, telegramAllowFrom), null, 2);
   for (const path of [RUNTIME_CONFIG, SOURCE_CONFIG]) {
     try {
       await mkdir(dirname(path), { recursive: true });
@@ -129,6 +287,19 @@ export async function ensureModelForProvider(
     },
   };
   await writeOpenClawConfig(updated);
+  return true;
+}
+
+export async function configureTelegramOwnerPrivilegedAccess(
+  ownerChatId: string,
+): Promise<boolean> {
+  const normalizedOwnerChatId = ownerChatId.trim();
+  if (!normalizedOwnerChatId) return false;
+
+  const config = await readOpenClawConfig();
+  const updated = applyManagedCommandConfig(config, [normalizedOwnerChatId]);
+  if (JSON.stringify(updated) === JSON.stringify(config)) return false;
+  await writeOpenClawConfig(updated, [normalizedOwnerChatId]);
   return true;
 }
 

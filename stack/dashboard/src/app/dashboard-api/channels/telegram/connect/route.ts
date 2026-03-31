@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { agentRequest } from "@/lib/agent-server-api";
 import { gatewayRequest } from "@/lib/gateway-server-api";
+import { configureTelegramOwnerPrivilegedAccess } from "@/lib/openclaw-runtime";
 
 interface AgentChannel {
   id: string;
@@ -73,6 +74,8 @@ export async function POST(request: Request) {
             config,
           }),
         });
+
+    await configureTelegramOwnerPrivilegedAccess(ownerChatId);
 
     const setupStatus = await agentRequest<SetupStatus>("/api/setup/status");
     let promptTriggered = false;
