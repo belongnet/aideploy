@@ -156,7 +156,7 @@ resource "google_compute_instance" "openclaw" {
   boot_disk {
     initialize_params {
       image = "ubuntu-os-cloud/ubuntu-2404-lts"
-      size  = 30
+      size  = 64
       type  = "pd-ssd"
     }
   }

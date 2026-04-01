@@ -144,7 +144,7 @@ resource "aws_instance" "openclaw" {
   user_data = var.cloud_init
 
   root_block_device {
-    volume_size = 30
+    volume_size = 64
     volume_type = "gp3"
   }
 
