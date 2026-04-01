@@ -634,6 +634,22 @@ class TelegramSetupManager:
         normalized = re.sub(r"\s+", " ", text.strip().lower())
         if not normalized:
             return None
+
+        # Slash commands: /connectclaude, /connectchatgpt, /connectai
+        slash_match = re.match(r"^/connect(claude|chatgpt|ai)\b", normalized)
+        if slash_match:
+            tag = slash_match.group(1)
+            if tag == "claude":
+                return "anthropic"
+            if tag == "chatgpt":
+                return "openai"
+            return "selector"
+
+        # Deep-link: /start connectclaude or /start connectchatgpt
+        start_match = re.match(r"^/start\s+(connect(?:claude|chatgpt|ai))\b", normalized)
+        if start_match:
+            return self._detect_connect_command(f"/{start_match.group(1)}")
+
         if not any(term in normalized for term in ("connect", "setup", "link", "oauth", "auth")):
             return None
         if any(term in normalized for term in ("chatgpt", "openai", "gpt")):
