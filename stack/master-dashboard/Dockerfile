@@ -27,8 +27,8 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV NEXT_TELEMETRY_DISABLED=1
 
-HEALTHCHECK --interval=15s --timeout=5s --retries=3 \
-  CMD wget -q --spider http://localhost:3000/ || exit 1
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \
+  CMD wget -q -O /dev/null http://localhost:3000/api/healthz || exit 1
 
 EXPOSE 3000
 CMD ["node", "server.js"]
