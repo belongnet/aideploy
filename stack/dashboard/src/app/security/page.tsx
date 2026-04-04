@@ -196,9 +196,9 @@ export default function SecurityPage() {
     <div className="space-y-6 max-w-3xl">
       {/* Page header */}
       <div>
-        <h1 className="page-title">Security</h1>
+        <h1 className="page-title">Password Storage</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Keep your API keys and passwords safe using a secrets manager.
+          Keep your API keys, passwords, and tokens safe using a secure vault.
         </p>
       </div>
 
@@ -222,26 +222,29 @@ export default function SecurityPage() {
           </div>
           <div>
             <h2 className="text-base font-semibold text-gray-900">
-              What are secret managers?
+              What is password storage?
             </h2>
             <p className="mt-1 text-sm text-gray-600 leading-relaxed">
-              Instead of pasting sensitive values (like API keys or passwords)
-              directly into your agent&apos;s settings, you can store them in a{" "}
-              <strong>secrets manager</strong> — a secure vault that keeps them
-              encrypted and access-controlled.
+              Your agent needs various passwords and keys to work &mdash; things
+              like your messaging app tokens or AI provider keys. Instead of
+              typing those sensitive values directly into your settings, you can
+              store them in a <strong>secure vault</strong> (also called a
+              &ldquo;secrets manager&rdquo;) that keeps them encrypted and
+              protected.
             </p>
             <p className="mt-2 text-sm text-gray-600 leading-relaxed">
-              Your agent then uses a <strong>reference</strong> like{" "}
+              Your agent then uses a short <strong>reference</strong> like{" "}
               <code className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-mono text-brand-700">
                 doppler://MY_API_KEY
               </code>{" "}
-              to fetch the real value at runtime. The actual secret never
-              appears in config files or logs.
+              to look up the real value when it needs it. The actual password
+              never appears in settings or logs &mdash; it stays safely locked
+              in the vault.
             </p>
             <p className="mt-2 text-sm text-gray-500">
               <strong>This is optional.</strong> Your agent works fine without
               it. But if you handle sensitive data or work with a team, a
-              secrets manager adds an important layer of protection.
+              password vault adds an important layer of protection.
             </p>
           </div>
         </div>

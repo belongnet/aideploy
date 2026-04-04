@@ -230,9 +230,9 @@ export default function ChannelsPage() {
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="page-title">Connected Apps</h1>
+          <h1 className="page-title">Messaging Apps</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Messaging apps your agent listens on.
+            Connect the apps where people will talk to your agent.
           </p>
         </div>
         {availableTypes.length > 0 && (
@@ -254,6 +254,48 @@ export default function ChannelsPage() {
           </button>
         )}
       </div>
+
+      {/* Explainer card */}
+      <section className="card bg-gradient-to-br from-brand-50 to-white border-brand-100">
+        <div className="flex gap-4">
+          <div className="flex-shrink-0 flex h-12 w-12 items-center justify-center rounded-xl bg-brand-100">
+            <svg
+              className="h-6 w-6 text-brand-600"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={1.5}
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z"
+              />
+            </svg>
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">
+              What are messaging apps?
+            </h2>
+            <p className="mt-1 text-sm text-gray-600 leading-relaxed">
+              Messaging apps are how people reach your agent. When someone sends
+              a message on <strong>Telegram</strong>, <strong>WhatsApp</strong>,
+              or <strong>Slack</strong>, your agent reads it, thinks of a reply,
+              and sends it back &mdash; all automatically.
+            </p>
+            <p className="mt-2 text-sm text-gray-600 leading-relaxed">
+              You connect an app by creating a &ldquo;bot&rdquo; inside it and
+              giving your agent the bot&apos;s access token. Don&apos;t worry
+              &mdash; each app has step-by-step instructions below.
+            </p>
+            <p className="mt-2 text-sm text-gray-500">
+              <strong>Start with one.</strong> Telegram is the fastest to set up
+              and works on both phones and desktop. You can always add more
+              later.
+            </p>
+          </div>
+        </div>
+      </section>
 
       {/* -------------------------------------------------------------- */}
       {/*  Add channel panel                                              */}

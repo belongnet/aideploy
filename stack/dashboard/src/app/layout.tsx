@@ -16,6 +16,7 @@ const NAV_ITEMS = [
   {
     href: "/",
     label: "Home",
+    subtitle: "",
     icon: (active: boolean) => (
       <svg
         className={`h-5 w-5 ${active ? "text-brand-600" : "text-gray-500"}`}
@@ -33,8 +34,69 @@ const NAV_ITEMS = [
     ),
   },
   {
+    href: "/ai-setup",
+    label: "AI Setup",
+    subtitle: "Connect your AI brain",
+    icon: (active: boolean) => (
+      <svg
+        className={`h-5 w-5 ${active ? "text-brand-600" : "text-gray-500"}`}
+        fill="none"
+        viewBox="0 0 24 24"
+        strokeWidth={1.5}
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z"
+        />
+      </svg>
+    ),
+  },
+  {
+    href: "/security",
+    label: "Password Storage",
+    subtitle: "Keep secrets safe",
+    icon: (active: boolean) => (
+      <svg
+        className={`h-5 w-5 ${active ? "text-brand-600" : "text-gray-500"}`}
+        fill="none"
+        viewBox="0 0 24 24"
+        strokeWidth={1.5}
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"
+        />
+      </svg>
+    ),
+  },
+  {
+    href: "/channels",
+    label: "Messaging Apps",
+    subtitle: "Where people talk to your agent",
+    icon: (active: boolean) => (
+      <svg
+        className={`h-5 w-5 ${active ? "text-brand-600" : "text-gray-500"}`}
+        fill="none"
+        viewBox="0 0 24 24"
+        strokeWidth={1.5}
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z"
+        />
+      </svg>
+    ),
+  },
+  {
     href: "/conversations",
     label: "Conversations",
+    subtitle: "",
     icon: (active: boolean) => (
       <svg
         className={`h-5 w-5 ${active ? "text-brand-600" : "text-gray-500"}`}
@@ -54,6 +116,7 @@ const NAV_ITEMS = [
   {
     href: "/tasks",
     label: "Tasks",
+    subtitle: "",
     icon: (active: boolean) => (
       <svg
         className={`h-5 w-5 ${active ? "text-brand-600" : "text-gray-500"}`}
@@ -71,27 +134,9 @@ const NAV_ITEMS = [
     ),
   },
   {
-    href: "/channels",
-    label: "Channels",
-    icon: (active: boolean) => (
-      <svg
-        className={`h-5 w-5 ${active ? "text-brand-600" : "text-gray-500"}`}
-        fill="none"
-        viewBox="0 0 24 24"
-        strokeWidth={1.5}
-        stroke="currentColor"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"
-        />
-      </svg>
-    ),
-  },
-  {
     href: "/analytics",
     label: "Analytics",
+    subtitle: "",
     icon: (active: boolean) => (
       <svg
         className={`h-5 w-5 ${active ? "text-brand-600" : "text-gray-500"}`}
@@ -109,27 +154,9 @@ const NAV_ITEMS = [
     ),
   },
   {
-    href: "/security",
-    label: "Security",
-    icon: (active: boolean) => (
-      <svg
-        className={`h-5 w-5 ${active ? "text-brand-600" : "text-gray-500"}`}
-        fill="none"
-        viewBox="0 0 24 24"
-        strokeWidth={1.5}
-        stroke="currentColor"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"
-        />
-      </svg>
-    ),
-  },
-  {
     href: "/settings",
     label: "Settings",
+    subtitle: "",
     icon: (active: boolean) => (
       <svg
         className={`h-5 w-5 ${active ? "text-brand-600" : "text-gray-500"}`}
@@ -271,8 +298,50 @@ export default function RootLayout({
 
           {/* Nav links */}
           <nav className="flex-1 overflow-y-auto py-4 px-3">
-            <ul className="space-y-1">
-              {NAV_ITEMS.map((item) => {
+            {/* Setup group label */}
+            <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+              Setup
+            </p>
+            <ul className="space-y-0.5">
+              {NAV_ITEMS.slice(0, 4).map((item) => {
+                const active = isActive(item.href);
+                return (
+                  <li key={item.href}>
+                    <Link
+                      href={item.href}
+                      className={`
+                        flex items-center gap-3 rounded-lg px-3 py-2 text-sm
+                        font-medium transition min-h-touch
+                        ${
+                          active
+                            ? "bg-brand-50 text-brand-700"
+                            : "text-gray-700 hover:bg-gray-100"
+                        }
+                      `}
+                    >
+                      {item.icon(active)}
+                      <div className="min-w-0">
+                        <span className="block leading-tight">{item.label}</span>
+                        {item.subtitle && (
+                          <span className={`block text-[10px] leading-tight mt-0.5 ${
+                            active ? "text-brand-500" : "text-gray-400"
+                          }`}>
+                            {item.subtitle}
+                          </span>
+                        )}
+                      </div>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+
+            {/* Usage group label */}
+            <p className="px-3 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+              Usage
+            </p>
+            <ul className="space-y-0.5">
+              {NAV_ITEMS.slice(4).map((item) => {
                 const active = isActive(item.href);
                 return (
                   <li key={item.href}>
@@ -342,7 +411,9 @@ export default function RootLayout({
         {/*  Bottom nav bar (mobile only)                            */}
         {/* -------------------------------------------------------- */}
         <nav className="fixed bottom-0 left-0 right-0 z-30 flex border-t border-gray-200 bg-white lg:hidden">
-          {NAV_ITEMS.map((item) => {
+          {NAV_ITEMS.filter((item) =>
+            ["/", "/ai-setup", "/channels", "/conversations", "/settings"].includes(item.href)
+          ).map((item) => {
             const active = isActive(item.href);
             return (
               <Link
@@ -355,7 +426,11 @@ export default function RootLayout({
                 `}
               >
                 {item.icon(active)}
-                <span className="mt-0.5">{item.label}</span>
+                <span className="mt-0.5">{
+                  item.href === "/ai-setup" ? "AI" :
+                  item.href === "/channels" ? "Messages" :
+                  item.label
+                }</span>
               </Link>
             );
           })}

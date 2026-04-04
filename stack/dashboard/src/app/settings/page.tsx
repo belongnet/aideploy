@@ -18,10 +18,6 @@ import {
 interface Config {
   name: string;
   personality: string;
-  modelProvider: string;
-  model: string;
-  authMethod: string;
-  connectedAs: string | null;
   pruneEnabled: boolean;
   pruneAfterDays: number;
   pruneKeepStarred: boolean;
@@ -32,40 +28,6 @@ interface Config {
     region: string;
   };
 }
-
-/* Model options by provider */
-const MODEL_OPTIONS: Record<
-  string,
-  { value: string; label: string; note?: string }[]
-> = {
-  openai: [
-    { value: "gpt-5.3-codex", label: "GPT-5.3 Codex", note: "OAuth" },
-    { value: "gpt-5.2", label: "GPT-5.2", note: "OAuth / API key" },
-    { value: "gpt-5.1", label: "GPT-5.1", note: "OAuth / API key" },
-    { value: "gpt-5-mini", label: "GPT-5 Mini", note: "API key only" },
-    { value: "gpt-4o", label: "GPT-4o", note: "API key only" },
-  ],
-  anthropic: [
-    { value: "claude-opus-4-6", label: "Claude Opus 4.6" },
-    { value: "claude-sonnet-4", label: "Claude Sonnet 4" },
-  ],
-  gemini: [
-    { value: "gemini-3-deep-think", label: "Gemini 3 Deep Think" },
-    { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
-  ],
-  kimi: [
-    { value: "kimi-k2.5", label: "Kimi K2.5" },
-    { value: "kimi-k2", label: "Kimi K2" },
-  ],
-};
-
-/* Provider display labels (zero-jargon: user-facing names) */
-const PROVIDER_LABELS: Record<string, string> = {
-  openai: "ChatGPT",
-  anthropic: "Claude",
-  gemini: "Gemini",
-  kimi: "Kimi",
-};
 
 /* Prune day options */
 const PRUNE_DAY_OPTIONS = [30, 60, 90, 180, 365];
@@ -83,7 +45,6 @@ export default function SettingsPage() {
   /* Form state — mirrors config for edits */
   const [name, setName] = useState("");
   const [personality, setPersonality] = useState("");
-  const [model, setModel] = useState("");
   const [pruneEnabled, setPruneEnabled] = useState(false);
   const [pruneAfterDays, setPruneAfterDays] = useState(90);
   const [pruneKeepStarred, setPruneKeepStarred] = useState(true);
@@ -107,7 +68,6 @@ export default function SettingsPage() {
       setConfig(data as Config);
       setName(data.name);
       setPersonality(data.personality);
-      setModel(data.model);
       setPruneEnabled(data.pruneEnabled);
       setPruneAfterDays(data.pruneAfterDays);
       setPruneKeepStarred(data.pruneKeepStarred);
@@ -133,7 +93,6 @@ export default function SettingsPage() {
       await updateConfig({
         name,
         personality,
-        model,
         pruneEnabled,
         pruneAfterDays,
         pruneKeepStarred,
@@ -222,9 +181,6 @@ export default function SettingsPage() {
     );
   }
 
-  const providerLabel = PROVIDER_LABELS[config.modelProvider] ?? config.modelProvider;
-  const models = MODEL_OPTIONS[config.modelProvider] ?? [];
-
   /* ---------------------------------------------------------------- */
   /*  Render                                                           */
   /* ---------------------------------------------------------------- */
@@ -292,76 +248,6 @@ export default function SettingsPage() {
           />
           <p className="mt-1 text-xs text-gray-400">
             Tell your agent how to talk and what kind of personality to have.
-          </p>
-        </div>
-      </section>
-
-      {/* ============================================================ */}
-      {/*  Section: AI Account                                          */}
-      {/* ============================================================ */}
-      <section className="card space-y-4">
-        <h2 className="section-title">AI Account</h2>
-
-        {/* Connection status */}
-        <div className="rounded-lg bg-gray-50 p-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-100 text-brand-700 text-sm font-bold">
-              {providerLabel.charAt(0)}
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-900">
-                {providerLabel}
-              </p>
-              {config.authMethod === "oauth" && config.connectedAs ? (
-                <p className="text-xs text-green-600">
-                  Connected as {config.connectedAs}
-                </p>
-              ) : config.authMethod === "api_key" ? (
-                <p className="text-xs text-green-600">
-                  Connected with API key
-                </p>
-              ) : (
-                <p className="text-xs text-gray-500">Not connected</p>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Model picker */}
-        <div>
-          <label
-            htmlFor="model-picker"
-            className="block text-sm font-medium text-gray-700 mb-1.5"
-          >
-            AI model
-          </label>
-          {models.length > 0 ? (
-            <select
-              id="model-picker"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              className="input-field max-w-md"
-            >
-              {models.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}{m.note ? ` (${m.note})` : ""}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <input
-              id="model-picker"
-              type="text"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              className="input-field max-w-md"
-            />
-          )}
-          <p className="mt-1 text-xs text-gray-400">
-            The AI model your agent uses to respond.
-            {config.modelProvider === "openai" && (
-              <> OAuth (ChatGPT subscription) supports Codex, 5.2, and 5.1. API key supports all models.</>
-            )}
           </p>
         </div>
       </section>
