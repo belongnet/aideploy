@@ -101,12 +101,19 @@ class TelegramSetupManager:
                     reply_to_message_id=metadata.get("message_id"),
                 )
                 return True
+            if not setup_status:
+                return True  # Suppress message until agent is ready
             return False
 
         if command == "selector":
             setup_status = await self._fetch_setup_status()
             if not setup_status:
-                return False
+                await self.dispatcher.send_telegram(
+                    chat_id,
+                    "Your bot is still starting up. Give it a moment and try again.",
+                    {"reply_to_message_id": metadata.get("message_id")} if metadata.get("message_id") else None,
+                )
+                return True
             await self._show_selector(
                 chat_id,
                 setup_status,
@@ -118,7 +125,13 @@ class TelegramSetupManager:
         if command in PROVIDER_LABELS:
             setup_status = await self._fetch_setup_status()
             if not setup_status:
-                return False
+                label = self._provider_label(command)
+                await self.dispatcher.send_telegram(
+                    chat_id,
+                    f"Your bot is still starting up and cannot begin {label} setup yet. Give it a moment and try again.",
+                    {"reply_to_message_id": metadata.get("message_id")} if metadata.get("message_id") else None,
+                )
+                return True
             await self._start_provider_flow(
                 chat_id,
                 command,
@@ -147,6 +160,15 @@ class TelegramSetupManager:
                 setup_status,
                 reply_to_message_id=metadata.get("message_id"),
                 trigger="message",
+            )
+            return True
+
+        # Dashboard not ready yet — intercept the message to avoid raw errors
+        if not setup_status:
+            await self.dispatcher.send_telegram(
+                chat_id,
+                "Your bot is still starting up. Give it a moment and try again.",
+                {"reply_to_message_id": metadata.get("message_id")} if metadata.get("message_id") else None,
             )
             return True
 
@@ -665,12 +687,12 @@ class TelegramSetupManager:
             return (
                 "Your bot is live! Let's connect an AI to power it.\n\n"
                 "Choose ChatGPT or Claude below.\n"
-                "For Gemini or other providers, use Open Dashboard."
+                "You can also connect Gemini, Kimi, or DeepSeek from the dashboard."
             )
         return (
-            "This bot needs an AI account before it can reply.\n\n"
+            "No AI provider is connected yet.\n\n"
             "Choose ChatGPT or Claude below.\n"
-            "For Gemini or other providers, use Open Dashboard."
+            "You can also connect Gemini, Kimi, or DeepSeek from the dashboard."
         )
 
     def _provider_prompt_text(
@@ -712,11 +734,10 @@ class TelegramSetupManager:
         )
 
     def _dashboard_only_text(self, setup_status: dict[str, Any]) -> str:
-        current_provider = self._provider_label(str(setup_status.get("currentProvider") or "openai"))
         setup_url = str(setup_status.get("dashboardSetupUrl") or "")
         return (
-            f"This Telegram chat cannot finish {current_provider} setup directly.\n"
-            f"Open {setup_url} to connect ChatGPT or Claude, then come back here."
+            "This Telegram chat cannot finish AI setup directly.\n"
+            f"Open {setup_url} to connect ChatGPT, Claude, Gemini, Kimi, or DeepSeek."
         )
 
     def _selector_keyboard(self, setup_url: str) -> dict[str, Any]:

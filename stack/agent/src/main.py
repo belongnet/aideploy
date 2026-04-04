@@ -415,23 +415,20 @@ async def _build_missing_ai_reply(config: Any, error_text: str = "") -> str:
     reason = (
         f"Your {label} connection expired."
         if "expired" in error_text.lower()
-        else f"Your {label} account is not connected yet."
+        else "No AI provider is connected yet."
     )
 
     lines = [
         reason,
-        "I cannot reply normally until that setup is finished.",
-        f"Open {setup_url} and connect your AI account.",
+        "I cannot reply normally until an AI provider is set up.",
         "",
-        "If you want the exact steps here first, send:",
+        "Reply one of these to get started:",
+        "\u2022 connect chatgpt",
+        "\u2022 connect claude",
+        "",
+        f"You can also connect Gemini, Kimi, or DeepSeek from the dashboard:",
+        setup_url,
     ]
-
-    if provider == "openai":
-        lines.append("connect chatgpt")
-    elif provider == "anthropic":
-        lines.append("connect claude")
-    else:
-        lines.append("connect ai")
 
     return "\n".join(lines)
 

@@ -103,14 +103,23 @@ class WhatsAppSetupManager:
         if command == "selector":
             setup_status = await self._fetch_setup_status()
             if not setup_status:
-                return False
+                await self.dispatcher.send_whatsapp(
+                    chat_id,
+                    "Your bot is still starting up. Give it a moment and try again.",
+                )
+                return True
             await self._show_selector(chat_id, setup_status, trigger="message")
             return True
 
         if command in PROVIDER_LABELS:
             setup_status = await self._fetch_setup_status()
             if not setup_status:
-                return False
+                label = self._provider_label(command)
+                await self.dispatcher.send_whatsapp(
+                    chat_id,
+                    f"Your bot is still starting up and cannot begin {label} setup yet. Give it a moment and try again.",
+                )
+                return True
             await self._start_provider_flow(chat_id, command, setup_status)
             return True
 
@@ -129,6 +138,13 @@ class WhatsAppSetupManager:
         setup_status = await self._fetch_setup_status()
         if setup_status and setup_status.get("setupRequired"):
             await self._show_selector(chat_id, setup_status, trigger="message")
+            return True
+
+        if not setup_status:
+            await self.dispatcher.send_whatsapp(
+                chat_id,
+                "Your bot is still starting up. Give it a moment and try again.",
+            )
             return True
 
         return False
@@ -507,7 +523,7 @@ class WhatsAppSetupManager:
             base = "Your bot is live! Let's connect an AI to power it."
         else:
             base = "This bot needs an AI account before it can reply."
-        dashboard_hint = f"\n\nFor Gemini or other providers, open: {setup_url}" if setup_url else ""
+        dashboard_hint = f"\n\nYou can also connect Gemini, Kimi, or DeepSeek from the dashboard: {setup_url}" if setup_url else ""
         return f"{base}\n\nChoose ChatGPT or Claude below.{dashboard_hint}"
 
     def _provider_prompt_text(
