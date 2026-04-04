@@ -109,7 +109,18 @@ def normalize_whatsapp(payload: dict[str, Any]) -> Optional[NormalizedMessage]:
     # Handle different message types
     msg_type = msg.get("type", "text")
     attachments = _whatsapp_attachments(msg)
-    if msg_type == "text":
+    if msg_type == "interactive":
+        interactive = msg.get("interactive", {})
+        reply_type = interactive.get("type", "")
+        if reply_type == "button_reply":
+            button_reply = interactive.get("button_reply", {})
+            text = str(button_reply.get("id") or button_reply.get("title") or "").strip()
+        elif reply_type == "list_reply":
+            list_reply = interactive.get("list_reply", {})
+            text = str(list_reply.get("id") or list_reply.get("title") or "").strip()
+        else:
+            text = ""
+    elif msg_type == "text":
         text = (msg.get("text", {}).get("body") or "").strip()
     elif msg_type == "reaction":
         text = f"[Reaction: {msg.get('reaction', {}).get('emoji', '')}]"

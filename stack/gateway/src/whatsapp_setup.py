@@ -1,9 +1,9 @@
 """
-OpenClaw Gateway — Telegram AI setup orchestration.
+OpenClaw Gateway — WhatsApp AI setup orchestration.
 
-Intercepts missing-AI setup in Telegram private chats, reuses the dashboard's
-browser-link OAuth flow, and can proactively DM the verified Telegram owner
-when Telegram is connected but AI is still missing.
+Intercepts missing-AI setup in WhatsApp chats, sends interactive button menus
+for provider selection, and reuses the dashboard's browser-link OAuth flow.
+Mirrors the Telegram setup flow in telegram_setup.py.
 """
 
 from __future__ import annotations
@@ -22,14 +22,14 @@ from .dispatcher import Dispatcher
 logger = logging.getLogger(__name__)
 
 SESSION_TTL_SECONDS = 15 * 60
-PROMPT_KEY = "telegram_ai_setup_missing"
+PROMPT_KEY = "whatsapp_ai_setup_missing"
 PROMPT_COOLDOWN_SECONDS = 12 * 60 * 60
 PROVIDER_LABELS = {
     "openai": "ChatGPT",
     "anthropic": "Claude",
 }
-PROVIDER_CALLBACK_PREFIX = "ocai:provider:"
-CANCEL_CALLBACK = "ocai:cancel"
+PROVIDER_BUTTON_PREFIX = "ocai:provider:"
+CANCEL_BUTTON = "ocai:cancel"
 DEFAULT_MODELS = {
     "openai": "gpt-5.3-codex",
     "anthropic": "claude-opus-4-6",
@@ -37,7 +37,7 @@ DEFAULT_MODELS = {
 
 
 @dataclass
-class TelegramSetupSession:
+class WhatsAppSetupSession:
     chat_id: str
     phase: str
     provider: str | None = None
@@ -49,90 +49,76 @@ class TelegramSetupSession:
     started_at: float = field(default_factory=time.time)
 
 
-class TelegramSetupManager:
+class WhatsAppSetupManager:
     def __init__(
         self,
         *,
         dispatcher: Dispatcher,
-        telegram_bot_token: str,
         agent_url: str,
         dashboard_internal_url: str,
         service_token: str,
     ):
         self.dispatcher = dispatcher
-        self.telegram_bot_token = telegram_bot_token.strip()
         self.agent_url = agent_url.rstrip("/")
         self.dashboard_internal_url = dashboard_internal_url.rstrip("/")
         self.service_token = service_token.strip()
-        self._sessions: dict[str, TelegramSetupSession] = {}
+        self._sessions: dict[str, WhatsAppSetupSession] = {}
 
     async def handle_message(self, incoming: Any) -> bool:
-        if not self.telegram_bot_token:
-            return False
-
         chat_id = str(incoming.chat_id)
-        metadata = incoming.metadata or {}
-        chat_type = str(metadata.get("chat_type") or "private")
         text = str(incoming.text or "")
-        callback_query_id = str(metadata.get("callback_query_id") or "").strip()
+        metadata = incoming.metadata or {}
 
-        if callback_query_id:
-            return await self._handle_callback(incoming)
+        # Handle interactive button replies (id comes as the text after normalization)
+        if text == CANCEL_BUTTON:
+            session = await self._get_session(chat_id)
+            if session and session.provider and self.dashboard_internal_url:
+                try:
+                    await self._dashboard_request(
+                        "POST",
+                        f"/dashboard-api/providers/{session.provider}/connect/cancel",
+                    )
+                except (ValueError, httpx.HTTPError) as exc:
+                    logger.info("Could not cancel %s setup session: %s", session.provider, exc)
+            self._sessions.pop(chat_id, None)
+            await self.dispatcher.send_whatsapp(
+                chat_id, "Setup cancelled.", metadata
+            )
+            setup_status = await self._fetch_setup_status()
+            if setup_status:
+                await self._show_selector(chat_id, setup_status, trigger="cancelled")
+            return True
+
+        if text.startswith(PROVIDER_BUTTON_PREFIX):
+            provider = text[len(PROVIDER_BUTTON_PREFIX):].strip().lower()
+            if provider in PROVIDER_LABELS:
+                setup_status = await self._fetch_setup_status()
+                if setup_status:
+                    await self._start_provider_flow(chat_id, provider, setup_status)
+                return True
 
         command = self._detect_connect_command(text)
         session = await self._get_session(chat_id)
-
-        if chat_type != "private":
-            if command:
-                setup_status = await self._fetch_setup_status()
-                if setup_status:
-                    await self._send_dashboard_only(
-                        chat_id,
-                        setup_status,
-                        reply_to_message_id=metadata.get("message_id"),
-                    )
-                return True
-
-            setup_status = await self._fetch_setup_status()
-            if setup_status and setup_status.get("setupRequired"):
-                await self._send_dashboard_only(
-                    chat_id,
-                    setup_status,
-                    reply_to_message_id=metadata.get("message_id"),
-                )
-                return True
-            return False
 
         if command == "selector":
             setup_status = await self._fetch_setup_status()
             if not setup_status:
                 return False
-            await self._show_selector(
-                chat_id,
-                setup_status,
-                reply_to_message_id=metadata.get("message_id"),
-                trigger="message",
-            )
+            await self._show_selector(chat_id, setup_status, trigger="message")
             return True
 
         if command in PROVIDER_LABELS:
             setup_status = await self._fetch_setup_status()
             if not setup_status:
                 return False
-            await self._start_provider_flow(
-                chat_id,
-                command,
-                setup_status,
-                reply_to_message_id=metadata.get("message_id"),
-            )
+            await self._start_provider_flow(chat_id, command, setup_status)
             return True
 
         if session and session.phase == "submitting":
-            await self.dispatcher.send_telegram(
+            await self.dispatcher.send_whatsapp(
                 chat_id,
                 "I am still finishing that AI connection. Give it a few seconds, then try again if needed.",
-                {"reply_to_message_id": metadata.get("message_id")},
-                reply_markup=self._provider_keyboard(session.dashboard_setup_url),
+                metadata,
             )
             return True
 
@@ -142,20 +128,12 @@ class TelegramSetupManager:
 
         setup_status = await self._fetch_setup_status()
         if setup_status and setup_status.get("setupRequired"):
-            await self._show_selector(
-                chat_id,
-                setup_status,
-                reply_to_message_id=metadata.get("message_id"),
-                trigger="message",
-            )
+            await self._show_selector(chat_id, setup_status, trigger="message")
             return True
 
         return False
 
     async def trigger_owner_prompt(self, trigger: str) -> dict[str, Any]:
-        if not self.telegram_bot_token:
-            return {"sent": False, "skipped": "telegram_not_configured"}
-
         setup_status = await self._fetch_setup_status()
         if not setup_status:
             return {"sent": False, "skipped": "agent_unavailable"}
@@ -172,133 +150,48 @@ class TelegramSetupManager:
                 "/api/setup/prompts/claim",
                 {
                     "promptKey": PROMPT_KEY,
-                    "channelType": "telegram",
+                    "channelType": "whatsapp",
                     "recipientChatId": owner_chat_id,
                     "cooldownSeconds": PROMPT_COOLDOWN_SECONDS,
                     "metadata": {"trigger": trigger},
                 },
             )
         except (ValueError, httpx.HTTPError) as exc:
-            logger.warning("Could not claim Telegram setup prompt: %s", exc)
+            logger.warning("Could not claim WhatsApp setup prompt: %s", exc)
             return {"sent": False, "skipped": "claim_failed"}
         if not claim:
             return {"sent": False, "skipped": "claim_failed"}
         if not claim.get("shouldSend"):
             return {"sent": False, "skipped": "cooldown_active", "lastSentAt": claim.get("lastSentAt")}
 
-        sent = await self._show_selector(
-            owner_chat_id,
-            setup_status,
-            trigger=trigger,
-        )
+        sent = await self._show_selector(owner_chat_id, setup_status, trigger=trigger)
         return {"sent": sent, "ownerChatId": owner_chat_id}
 
     async def run_startup_prompt(self) -> None:
-        if not self.telegram_bot_token:
-            return
-
         for attempt in range(10):
             if attempt:
                 await asyncio.sleep(3)
 
-            if not await self._telegram_bot_is_live():
-                logger.warning("Skipping Telegram startup setup prompt: bot token is not live")
-                return
-
             try:
                 result = await self.trigger_owner_prompt("startup")
             except Exception as exc:
-                logger.warning("Telegram startup prompt attempt %s failed: %s", attempt + 1, exc)
+                logger.warning("WhatsApp startup prompt attempt %s failed: %s", attempt + 1, exc)
                 continue
 
             if result.get("skipped") == "agent_unavailable":
                 continue
 
-            logger.info("Telegram startup prompt result: %s", result)
+            logger.info("WhatsApp startup prompt result: %s", result)
             return
-
-    async def _handle_callback(self, incoming: Any) -> bool:
-        metadata = incoming.metadata or {}
-        callback_query_id = str(metadata.get("callback_query_id") or "").strip()
-        if not callback_query_id:
-            return False
-
-        text = str(incoming.text or "")
-        chat_id = str(incoming.chat_id)
-        chat_type = str(metadata.get("chat_type") or "private")
-
-        if text == CANCEL_CALLBACK:
-            session = await self._get_session(chat_id)
-            if session and session.provider and self.dashboard_internal_url:
-                try:
-                    await self._dashboard_request(
-                        "POST",
-                        f"/dashboard-api/providers/{session.provider}/connect/cancel",
-                    )
-                except (ValueError, httpx.HTTPError) as exc:
-                    logger.info("Could not cancel %s setup session: %s", session.provider, exc)
-            self._sessions.pop(chat_id, None)
-            await self.dispatcher.answer_telegram_callback(callback_query_id, "Setup cancelled.")
-
-            setup_status = await self._fetch_setup_status()
-            if setup_status:
-                await self._show_selector(chat_id, setup_status, trigger="cancelled")
-            return True
-
-        if not text.startswith(PROVIDER_CALLBACK_PREFIX):
-            await self.dispatcher.answer_telegram_callback(callback_query_id)
-            return True
-
-        provider = text[len(PROVIDER_CALLBACK_PREFIX) :].strip().lower()
-        if provider not in PROVIDER_LABELS:
-            await self.dispatcher.answer_telegram_callback(
-                callback_query_id,
-                "That AI option is not supported here.",
-                show_alert=True,
-            )
-            return True
-
-        if chat_type != "private":
-            await self.dispatcher.answer_telegram_callback(
-                callback_query_id,
-                "Finish AI setup in a private Telegram chat or in the dashboard.",
-                show_alert=True,
-            )
-            setup_status = await self._fetch_setup_status()
-            if setup_status:
-                await self._send_dashboard_only(chat_id, setup_status)
-            return True
-
-        setup_status = await self._fetch_setup_status()
-        if not setup_status:
-            await self.dispatcher.answer_telegram_callback(
-                callback_query_id,
-                "The setup service is not ready yet.",
-                show_alert=True,
-            )
-            return True
-
-        await self.dispatcher.answer_telegram_callback(
-            callback_query_id,
-            f"Starting {self._provider_label(provider)} setup...",
-        )
-        await self._start_provider_flow(chat_id, provider, setup_status)
-        return True
 
     async def _start_provider_flow(
         self,
         chat_id: str,
         provider: str,
         setup_status: dict[str, Any],
-        *,
-        reply_to_message_id: Any = None,
     ) -> bool:
         if not self.dashboard_internal_url:
-            await self._send_dashboard_only(
-                chat_id,
-                setup_status,
-                reply_to_message_id=reply_to_message_id,
-            )
+            await self._send_dashboard_only(chat_id, setup_status)
             return True
 
         session = await self._get_session(chat_id)
@@ -318,23 +211,18 @@ class TelegramSetupManager:
             )
         except (ValueError, httpx.HTTPError) as exc:
             logger.warning("Could not start %s connect flow: %s", provider, exc)
-            await self._send_dashboard_only(
-                chat_id,
-                setup_status,
-                reply_to_message_id=reply_to_message_id,
-            )
+            await self._send_dashboard_only(chat_id, setup_status)
             return True
+
         snapshot = result.get("session") if isinstance(result, dict) else None
         if not snapshot or not snapshot.get("url"):
-            await self.dispatcher.send_telegram(
+            await self.dispatcher.send_whatsapp(
                 chat_id,
-                f"I could not start the {self._provider_label(provider)} browser link here. Use Open Dashboard instead.",
-                {"reply_to_message_id": reply_to_message_id} if reply_to_message_id else None,
-                reply_markup=self._selector_keyboard(setup_status.get("dashboardSetupUrl", "")),
+                f"I could not start the {self._provider_label(provider)} browser link here. Use your dashboard instead: {setup_status.get('dashboardSetupUrl', '')}",
             )
             return True
 
-        self._sessions[chat_id] = TelegramSetupSession(
+        self._sessions[chat_id] = WhatsAppSetupSession(
             chat_id=chat_id,
             phase="awaiting_input",
             provider=provider,
@@ -344,19 +232,16 @@ class TelegramSetupManager:
             current_auth_method_before_flow=str(setup_status.get("currentAuthMethod") or ""),
             dashboard_session=snapshot,
         )
-        await self.dispatcher.send_telegram(
+        await self.dispatcher.send_whatsapp(
             chat_id,
             self._provider_prompt_text(provider, snapshot, setup_status),
-            {"reply_to_message_id": reply_to_message_id} if reply_to_message_id else None,
-            reply_markup=self._provider_keyboard(str(setup_status.get("dashboardSetupUrl") or "")),
-            disable_web_page_preview=True,
         )
         return True
 
     async def _submit_provider_input(
         self,
         incoming: Any,
-        session: TelegramSetupSession,
+        session: WhatsAppSetupSession,
     ) -> None:
         provider = session.provider
         if not provider:
@@ -377,37 +262,30 @@ class TelegramSetupManager:
             self._sessions.pop(chat_id, None)
             setup_status = await self._fetch_setup_status()
             if setup_status:
-                await self._send_dashboard_only(
-                    chat_id,
-                    setup_status,
-                    reply_to_message_id=metadata.get("message_id"),
-                )
+                await self._send_dashboard_only(chat_id, setup_status)
             return
+
         snapshot = result.get("session") if isinstance(result, dict) else None
         if snapshot and snapshot.get("status") == "running":
             snapshot = await self._wait_for_completion(provider) or snapshot
 
         if snapshot and snapshot.get("status") == "completed":
-            await self.dispatcher.delete_telegram_message(chat_id, metadata.get("message_id"))
             try:
                 await self._apply_provider_selection(provider, session)
             except (ValueError, httpx.HTTPError) as exc:
                 logger.warning("Connected %s but could not update agent config: %s", provider, exc)
                 self._sessions.pop(chat_id, None)
-                setup_status = await self._fetch_setup_status()
                 setup_url = str(
-                    (setup_status or {}).get("dashboardSetupUrl")
+                    (await self._fetch_setup_status() or {}).get("dashboardSetupUrl")
                     or session.dashboard_setup_url
                 )
-                await self.dispatcher.send_telegram(
+                await self.dispatcher.send_whatsapp(
                     chat_id,
-                    f"{self._provider_label(provider)} is connected, but I could not switch the bot to it automatically. Finish that step in Open Dashboard.",
-                    reply_markup=self._selector_keyboard(setup_url),
-                    disable_web_page_preview=True,
+                    f"{self._provider_label(provider)} is connected, but I could not switch the bot to it automatically. Finish in dashboard: {setup_url}",
                 )
                 return
             self._sessions.pop(chat_id, None)
-            await self.dispatcher.send_telegram(
+            await self.dispatcher.send_whatsapp(
                 chat_id,
                 f"{self._provider_label(provider)} is connected. Send your message again.",
             )
@@ -420,22 +298,17 @@ class TelegramSetupManager:
                 (setup_status or {}).get("dashboardSetupUrl")
                 or session.dashboard_setup_url
             )
-            await self.dispatcher.send_telegram(
+            await self.dispatcher.send_whatsapp(
                 chat_id,
-                self._provider_error_text(provider, snapshot),
-                {"reply_to_message_id": metadata.get("message_id")},
-                reply_markup=self._selector_keyboard(setup_url),
-                disable_web_page_preview=True,
+                self._provider_error_text(provider, snapshot, setup_url),
             )
             return
 
         session.dashboard_session = snapshot or session.dashboard_session
         session.phase = "awaiting_input"
-        await self.dispatcher.send_telegram(
+        await self.dispatcher.send_whatsapp(
             chat_id,
             self._still_waiting_text(provider, snapshot),
-            {"reply_to_message_id": metadata.get("message_id")},
-            reply_markup=self._provider_keyboard(session.dashboard_setup_url),
         )
 
     async def _show_selector(
@@ -443,10 +316,9 @@ class TelegramSetupManager:
         chat_id: str,
         setup_status: dict[str, Any],
         *,
-        reply_to_message_id: Any = None,
         trigger: str,
     ) -> bool:
-        self._sessions[chat_id] = TelegramSetupSession(
+        self._sessions[chat_id] = WhatsAppSetupSession(
             chat_id=chat_id,
             phase="selecting_provider",
             dashboard_setup_url=str(setup_status.get("dashboardSetupUrl") or ""),
@@ -454,33 +326,31 @@ class TelegramSetupManager:
             current_model_before_flow=str(setup_status.get("currentModel") or ""),
             current_auth_method_before_flow=str(setup_status.get("currentAuthMethod") or ""),
         )
-        return await self.dispatcher.send_telegram(
+        buttons = [
+            {"id": f"{PROVIDER_BUTTON_PREFIX}openai", "title": "ChatGPT"},
+            {"id": f"{PROVIDER_BUTTON_PREFIX}anthropic", "title": "Claude"},
+        ]
+        return await self.dispatcher.send_whatsapp_interactive(
             chat_id,
-            self._selector_text(trigger),
-            {"reply_to_message_id": reply_to_message_id} if reply_to_message_id else None,
-            reply_markup=self._selector_keyboard(str(setup_status.get("dashboardSetupUrl") or "")),
-            disable_web_page_preview=True,
+            self._selector_text(trigger, setup_status),
+            buttons,
         )
 
     async def _send_dashboard_only(
         self,
         chat_id: str,
         setup_status: dict[str, Any],
-        *,
-        reply_to_message_id: Any = None,
     ) -> bool:
-        return await self.dispatcher.send_telegram(
+        setup_url = str(setup_status.get("dashboardSetupUrl") or "")
+        return await self.dispatcher.send_whatsapp(
             chat_id,
-            self._dashboard_only_text(setup_status),
-            {"reply_to_message_id": reply_to_message_id} if reply_to_message_id else None,
-            reply_markup=self._dashboard_keyboard(str(setup_status.get("dashboardSetupUrl") or "")),
-            disable_web_page_preview=True,
+            f"Open your dashboard to connect an AI provider: {setup_url}",
         )
 
     async def _apply_provider_selection(
         self,
         provider: str,
-        session: TelegramSetupSession,
+        session: WhatsAppSetupSession,
     ) -> None:
         setup_status = await self._fetch_setup_status()
         current_provider = str(
@@ -517,13 +387,13 @@ class TelegramSetupManager:
         try:
             channels = await self._agent_request("GET", "/api/channels")
         except (ValueError, httpx.HTTPError) as exc:
-            logger.warning("Could not load channels for Telegram setup prompt: %s", exc)
+            logger.warning("Could not load channels for WhatsApp setup prompt: %s", exc)
             return ""
         if not isinstance(channels, list):
             return ""
 
         for channel in channels:
-            if str(channel.get("type") or "").lower() != "telegram":
+            if str(channel.get("type") or "").lower() != "whatsapp":
                 continue
             config = channel.get("config") if isinstance(channel.get("config"), dict) else {}
             owner_chat_id = str(config.get("ownerChatId") or "").strip()
@@ -555,7 +425,7 @@ class TelegramSetupManager:
                 return snapshot
         return None
 
-    async def _get_session(self, chat_id: str) -> TelegramSetupSession | None:
+    async def _get_session(self, chat_id: str) -> WhatsAppSetupSession | None:
         session = self._sessions.get(chat_id)
         if not session:
             return None
@@ -572,20 +442,6 @@ class TelegramSetupManager:
                 logger.info("Could not cancel expired %s setup session: %s", session.provider, exc)
         self._sessions.pop(chat_id, None)
         return None
-
-    async def _telegram_bot_is_live(self) -> bool:
-        if not self.telegram_bot_token:
-            return False
-        url = f"https://api.telegram.org/bot{self.telegram_bot_token}/getMe"
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.get(url)
-                response.raise_for_status()
-                data = response.json()
-                return bool(data.get("ok"))
-        except (ValueError, httpx.HTTPError) as exc:
-            logger.warning("Telegram getMe failed: %s", exc)
-            return False
 
     async def _agent_request(
         self,
@@ -635,21 +491,6 @@ class TelegramSetupManager:
         if not normalized:
             return None
 
-        # Slash commands: /connectclaude, /connectchatgpt, /connectai
-        slash_match = re.match(r"^/connect(claude|chatgpt|ai)\b", normalized)
-        if slash_match:
-            tag = slash_match.group(1)
-            if tag == "claude":
-                return "anthropic"
-            if tag == "chatgpt":
-                return "openai"
-            return "selector"
-
-        # Deep-link: /start connectclaude or /start connectchatgpt
-        start_match = re.match(r"^/start\s+(connect(?:claude|chatgpt|ai))\b", normalized)
-        if start_match:
-            return self._detect_connect_command(f"/{start_match.group(1)}")
-
         if not any(term in normalized for term in ("connect", "setup", "link", "oauth", "auth")):
             return None
         if any(term in normalized for term in ("chatgpt", "openai", "gpt")):
@@ -660,18 +501,14 @@ class TelegramSetupManager:
             return "selector"
         return None
 
-    def _selector_text(self, trigger: str) -> str:
+    def _selector_text(self, trigger: str, setup_status: dict[str, Any]) -> str:
+        setup_url = str(setup_status.get("dashboardSetupUrl") or "")
         if trigger == "startup":
-            return (
-                "Your bot is live! Let's connect an AI to power it.\n\n"
-                "Choose ChatGPT or Claude below.\n"
-                "For Gemini or other providers, use Open Dashboard."
-            )
-        return (
-            "This bot needs an AI account before it can reply.\n\n"
-            "Choose ChatGPT or Claude below.\n"
-            "For Gemini or other providers, use Open Dashboard."
-        )
+            base = "Your bot is live! Let's connect an AI to power it."
+        else:
+            base = "This bot needs an AI account before it can reply."
+        dashboard_hint = f"\n\nFor Gemini or other providers, open: {setup_url}" if setup_url else ""
+        return f"{base}\n\nChoose ChatGPT or Claude below.{dashboard_hint}"
 
     def _provider_prompt_text(
         self,
@@ -688,16 +525,15 @@ class TelegramSetupManager:
 
         return (
             f"Connect {label} in your browser:\n{url}\n\n"
-            f"{paste_help}\n\n"
-            f"If you want another provider, open {setup_status.get('dashboardSetupUrl', '')}."
+            f"{paste_help}"
         )
 
-    def _provider_error_text(self, provider: str, snapshot: dict[str, Any]) -> str:
+    def _provider_error_text(self, provider: str, snapshot: dict[str, Any], setup_url: str) -> str:
         detail = self._session_error(snapshot)
         return (
             f"{self._provider_label(provider)} setup did not finish.\n"
             f"{detail}\n\n"
-            "Try again here or use Open Dashboard."
+            f"Try again by typing 'connect {self._provider_label(provider).lower()}' or open: {setup_url}"
         )
 
     def _still_waiting_text(self, provider: str, snapshot: dict[str, Any] | None) -> str:
@@ -710,38 +546,6 @@ class TelegramSetupManager:
             f"I am still finishing {self._provider_label(provider)} setup. "
             "If nothing happens, paste the final URL or code again."
         )
-
-    def _dashboard_only_text(self, setup_status: dict[str, Any]) -> str:
-        current_provider = self._provider_label(str(setup_status.get("currentProvider") or "openai"))
-        setup_url = str(setup_status.get("dashboardSetupUrl") or "")
-        return (
-            f"This Telegram chat cannot finish {current_provider} setup directly.\n"
-            f"Open {setup_url} to connect ChatGPT or Claude, then come back here."
-        )
-
-    def _selector_keyboard(self, setup_url: str) -> dict[str, Any]:
-        keyboard = [
-            [
-                {"text": "ChatGPT", "callback_data": f"{PROVIDER_CALLBACK_PREFIX}openai"},
-                {"text": "Claude", "callback_data": f"{PROVIDER_CALLBACK_PREFIX}anthropic"},
-            ]
-        ]
-        if setup_url:
-            keyboard.append([{"text": "Open Dashboard", "url": setup_url}])
-        return {"inline_keyboard": keyboard}
-
-    def _provider_keyboard(self, setup_url: str) -> dict[str, Any]:
-        keyboard: list[list[dict[str, Any]]] = [
-            [{"text": "Cancel", "callback_data": CANCEL_CALLBACK}]
-        ]
-        if setup_url:
-            keyboard.append([{"text": "Open Dashboard", "url": setup_url}])
-        return {"inline_keyboard": keyboard}
-
-    def _dashboard_keyboard(self, setup_url: str) -> dict[str, Any] | None:
-        if not setup_url:
-            return None
-        return {"inline_keyboard": [[{"text": "Open Dashboard", "url": setup_url}]]}
 
     def _provider_label(self, provider: str) -> str:
         return PROVIDER_LABELS.get(provider, provider.title())

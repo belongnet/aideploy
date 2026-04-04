@@ -615,18 +615,25 @@ async def process_message(incoming: IncomingMessage) -> str:
         for msg in history:
             messages.append({"role": msg.role.value, "content": msg.content})
 
-        # Step 6: Call LLM
-        try:
-            result = await llm.chat(messages)
-            response_text = result["content"]
-            tokens_used = result.get("tokens_used", 0)
-        except Exception as e:
-            logger.error(f"LLM call failed: {e}")
-            if _is_auth_configuration_error(e):
-                response_text = await _build_missing_ai_reply(config, str(e))
-            else:
-                response_text = "I'm having trouble responding right now. Please try again."
+        # Step 6: Call LLM (pre-flight credential check to avoid noisy errors)
+        if not await llm.has_credentials():
+            provider = config.model_provider.value
+            response_text = await _build_missing_ai_reply(
+                config, f"No credentials configured for {provider}."
+            )
             tokens_used = 0
+        else:
+            try:
+                result = await llm.chat(messages)
+                response_text = result["content"]
+                tokens_used = result.get("tokens_used", 0)
+            except Exception as e:
+                logger.error(f"LLM call failed: {e}")
+                if _is_auth_configuration_error(e):
+                    response_text = await _build_missing_ai_reply(config, str(e))
+                else:
+                    response_text = "I'm having trouble responding right now. Please try again."
+                tokens_used = 0
 
     # Step 7: Store response
     assistant_msg = Message(

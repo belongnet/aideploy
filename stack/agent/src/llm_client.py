@@ -66,6 +66,16 @@ class LLMAdapter(ABC):
         """Stream a response token by token."""
         ...
 
+    async def has_credentials(self) -> bool:
+        """Check if credentials exist without making an external call."""
+        provider = self.config.model_provider.value
+        if self.config.auth_method == AuthMethod.OAUTH:
+            tokens = await self.db.get_oauth_tokens(provider)
+            return tokens is not None
+        else:
+            api_key = await self.db.get_api_key(provider)
+            return bool(api_key)
+
     async def get_auth_headers(self) -> dict[str, str]:
         """Get authorization headers, refreshing OAuth tokens if needed."""
         if self.config.auth_method == AuthMethod.OAUTH:
