@@ -39,26 +39,26 @@ const PROVIDER_SETUP: Record<
     label: "ChatGPT",
     color: "#10A37F",
     hint:
-      "Generate a browser link, sign in on your own device, then paste the localhost redirect URL or code back here.",
+      "Click the button to get a sign-in link. Open it in your browser, sign in with your ChatGPT account, then come back here and paste what you see.",
     buttonLabel: "New Browser Link",
     steps: [
-      "Click the button below to generate a one-time ChatGPT browser link",
-      "Open that link in your browser and sign in on your own device",
-      "When ChatGPT redirects you to localhost, copy the full URL from the address bar",
-      "Paste that URL or code below to finish the connection",
+      "Click the button below to get a one-time sign-in link",
+      "Open that link in your browser and sign in with your ChatGPT account",
+      "When you see a page that says 'localhost' in the address bar, copy everything in the address bar",
+      "Paste it below to finish the connection",
     ],
   },
   anthropic: {
     label: "Claude",
     color: "#D4A574",
     hint:
-      "Generate a browser link, sign in on your own device, then paste the Claude redirect URL or one-time code back here.",
+      "Click the button to get a sign-in link. Open it in your browser, sign in with your Claude account, then come back here and paste what you see.",
     buttonLabel: "New Browser Link",
     steps: [
-      "Click the button below to generate a one-time Claude browser link",
-      "Open that link in your browser and sign in on your own device",
-      "Claude may finish by showing a redirect URL or a one-time code",
-      "Paste that redirect URL or code below to finish the connection",
+      "Click the button below to get a one-time sign-in link",
+      "Open that link in your browser and sign in with your Claude account",
+      "After signing in, Claude will show you a code or redirect you to a page — copy whatever you see",
+      "Paste it below to finish the connection",
     ],
   },
 };
@@ -374,7 +374,7 @@ export default function SetupPage() {
                       </p>
                       <p className="mt-2 text-sm text-gray-700">
                         Open this one-time browser link on your own device, then
-                        come back here with the redirect URL or code.
+                        come back here and paste what you see.
                       </p>
                       <a
                         href={session?.url}
@@ -405,7 +405,7 @@ export default function SetupPage() {
                       }}
                       placeholder={
                         session?.inputPlaceholder ||
-                        "Paste the redirect URL or one-time code"
+                        "Paste what you see in your browser's address bar"
                       }
                       className={`flex-1 px-4 py-2.5 rounded-xl border text-sm outline-none transition-all
                         focus:ring-2 focus:ring-brand-500 focus:border-brand-500
@@ -428,14 +428,14 @@ export default function SetupPage() {
                   </div>
 
                   {session?.logs && (
-                    <div className="rounded-2xl bg-gray-950 px-4 py-3 text-xs text-gray-200">
-                      <p className="font-semibold uppercase tracking-[0.18em] text-gray-400">
-                        Connect Log
-                      </p>
-                      <pre className="mt-2 whitespace-pre-wrap break-words font-mono">
+                    <details className="rounded-2xl bg-gray-950 text-xs text-gray-200">
+                      <summary className="px-4 py-3 font-semibold uppercase tracking-[0.18em] text-gray-400 cursor-pointer">
+                        Troubleshooting details
+                      </summary>
+                      <pre className="px-4 pb-3 whitespace-pre-wrap break-words font-mono">
                         {session.logs}
                       </pre>
-                    </div>
+                    </details>
                   )}
 
                   {/* Error */}

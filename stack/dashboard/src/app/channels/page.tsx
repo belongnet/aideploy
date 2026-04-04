@@ -43,8 +43,8 @@ const CHANNEL_META: Record<
       'Open Telegram and search for "@BotFather".',
       'Send the command "/newbot" and follow the prompts.',
       "BotFather will give you a token (a long string of letters and numbers).",
-      "Open your bot in Telegram and send it a private message from the owner account that should receive setup prompts.",
-      "Paste the bot token and that owner private chat ID below.",
+      "Open your bot in Telegram and send it a private message from the account that should receive setup prompts.",
+      "Paste the bot token and that account's private chat ID below.",
     ],
     placeholder: "Paste your Telegram bot token here",
     badge: "Fastest setup",
@@ -73,8 +73,8 @@ const CHANNEL_META: Record<
     setupSteps: [
       "Go to api.slack.com/apps and click \"Create New App\".",
       'Choose "From scratch" and pick your workspace.',
-      'Under "OAuth & Permissions", add the bot scopes: chat:write, app_mentions:read.',
-      'Install to workspace, then copy the "Bot User OAuth Token".',
+      'Under "Permissions", give the bot permission to send messages (chat:write) and read mentions (app_mentions:read).',
+      "Install to workspace, then copy the bot token.",
       "Paste the token below.",
     ],
     placeholder: "Paste your Slack bot token here",
@@ -142,10 +142,10 @@ export default function ChannelsPage() {
             : "";
         setSaveMessage(
           result.promptTriggered
-            ? "Telegram is connected. If AI is still missing, the bot just sent setup options to that owner chat."
+            ? "Telegram is connected. If AI setup is still needed, the bot just sent you a message with next steps."
             : promptError
-              ? "Telegram is connected and the owner chat was saved, but I could not send the in-chat setup prompt yet. The bot will try again the next time startup prompting runs."
-              : "Telegram is connected. If AI still needs setup, the bot will DM the saved owner chat the next time the setup prompt is allowed.",
+              ? "Telegram is connected, but the bot couldn't send you the setup message yet. It will try again shortly."
+              : "Telegram is connected. If AI still needs setup, the bot will message you with next steps soon.",
         );
       } else {
         await addChannel({ type: addType, token: token.trim() });
@@ -380,22 +380,21 @@ export default function ChannelsPage() {
                       htmlFor="telegram-owner-chat-id"
                       className="block text-sm font-medium text-gray-700 mb-1.5"
                     >
-                      Verified owner chat ID
+                      Telegram private chat ID
                     </label>
                     <input
                       id="telegram-owner-chat-id"
                       type="text"
                       value={ownerChatId}
                       onChange={(e) => setOwnerChatId(e.target.value)}
-                      placeholder="Paste the Telegram private chat ID"
+                      placeholder="Paste the numeric Telegram private chat ID"
                       className="input-field font-mono text-sm"
                     />
                   </div>
                   <p className="text-xs text-gray-500">
-                    This private Telegram chat gets startup notices and the
-                    in-chat AI setup prompt before the bot can reply. If AI is
-                    not configured yet, the bot will proactively message this
-                    saved owner chat.
+                    We need this numeric private chat ID so the bot knows which
+                    Telegram account should receive setup messages and startup
+                    notices.
                   </p>
                 </div>
               )}
