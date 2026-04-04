@@ -1,6 +1,7 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { execFile } from "node:child_process";
+import { resolveValueTree } from "@/lib/secret-resolver";
 
 const SECRETS_ROOT =
   process.env.AIDEPLOY_RUNTIME_SECRETS_ROOT || "/run/aideploy-secrets";
@@ -24,19 +25,65 @@ export interface AuthProfileStore {
   profiles: Record<string, AuthProfile>;
 }
 
-export async function readAuthProfiles(): Promise<AuthProfileStore> {
-  for (const path of [RUNTIME_AUTH_PROFILES, SOURCE_AUTH_PROFILES]) {
+async function readFirstAvailableJson<T>(
+  paths: string[],
+  transform: (parsed: unknown) => Promise<T> | T,
+): Promise<T | null> {
+  let lastError: unknown = null;
+
+  for (const path of paths) {
     try {
       const raw = await readFile(path, "utf-8");
       const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed.profiles === "object") {
-        return parsed as AuthProfileStore;
-      }
-    } catch {
-      // try next path
+      return await transform(parsed);
+    } catch (error) {
+      lastError = error;
+      continue;
     }
   }
-  return { version: 1, profiles: {} };
+
+  if (lastError) throw lastError;
+  return null;
+}
+
+async function readRawAuthProfiles(): Promise<AuthProfileStore> {
+  const store = await readFirstAvailableJson(
+    [RUNTIME_AUTH_PROFILES, SOURCE_AUTH_PROFILES],
+    (parsed) => {
+      if (!parsed || typeof parsed !== "object") {
+        throw new Error("Auth profiles file must contain a JSON object");
+      }
+      if (typeof (parsed as AuthProfileStore).profiles !== "object") {
+        throw new Error("Auth profiles file is missing the profiles object");
+      }
+      return parsed as AuthProfileStore;
+    },
+  );
+
+  return store ?? { version: 1, profiles: {} };
+}
+
+export async function readAuthProfilesForUpdate(): Promise<AuthProfileStore> {
+  return readRawAuthProfiles();
+}
+
+async function readRawOpenClawConfig(): Promise<Record<string, unknown>> {
+  const config = await readFirstAvailableJson(
+    [RUNTIME_CONFIG, SOURCE_CONFIG],
+    (parsed) => {
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("openclaw.json must contain a JSON object");
+      }
+      return parsed as Record<string, unknown>;
+    },
+  );
+
+  return config ?? {};
+}
+
+export async function readAuthProfiles(): Promise<AuthProfileStore> {
+  const parsed = await readRawAuthProfiles();
+  return (await resolveValueTree(parsed, "auth.profiles")) as AuthProfileStore;
 }
 
 export async function writeAuthProfiles(
@@ -220,18 +267,16 @@ function applyManagedCommandConfig(
 
 /**
  * Read the merged openclaw.json config from the runtime secrets path,
- * falling back to the home-root copy.
+ * falling back to the home-root copy. Any secret references
+ * (env://, doppler://, aws-sm://, gcp-sm://, azure-kv://) found in
+ * the config values are resolved before the config is returned.
  */
 export async function readOpenClawConfig(): Promise<Record<string, unknown>> {
-  for (const path of [RUNTIME_CONFIG, SOURCE_CONFIG]) {
-    try {
-      const raw = await readFile(path, "utf-8");
-      return JSON.parse(raw) as Record<string, unknown>;
-    } catch {
-      // try next path
-    }
-  }
-  return {};
+  const parsed = await readRawOpenClawConfig();
+  return (await resolveValueTree(parsed, "openclaw.config")) as Record<
+    string,
+    unknown
+  >;
 }
 
 /**
@@ -260,7 +305,7 @@ export async function writeOpenClawConfig(
 export async function ensureModelForProvider(
   provider: string,
 ): Promise<boolean> {
-  const config = await readOpenClawConfig();
+  const config = await readRawOpenClawConfig();
   const agents = (config.agents ?? {}) as Record<string, unknown>;
   const defaults = (agents.defaults ?? {}) as Record<string, unknown>;
   const model = (defaults.model ?? {}) as Record<string, unknown>;
@@ -296,7 +341,7 @@ export async function configureTelegramOwnerPrivilegedAccess(
   const normalizedOwnerChatId = ownerChatId.trim();
   if (!normalizedOwnerChatId) return false;
 
-  const config = await readOpenClawConfig();
+  const config = await readRawOpenClawConfig();
   const updated = applyManagedCommandConfig(config, [normalizedOwnerChatId]);
   if (JSON.stringify(updated) === JSON.stringify(config)) return false;
   await writeOpenClawConfig(updated, [normalizedOwnerChatId]);

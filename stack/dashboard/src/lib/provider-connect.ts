@@ -1,5 +1,10 @@
 import { pathToFileURL } from "node:url";
-import { readAuthProfiles, writeAuthProfiles, ensureModelForProvider, restartGateway } from "@/lib/openclaw-runtime";
+import {
+  readAuthProfilesForUpdate,
+  writeAuthProfiles,
+  ensureModelForProvider,
+  restartGateway,
+} from "@/lib/openclaw-runtime";
 
 type ProviderId = "openai" | "anthropic";
 
@@ -166,7 +171,7 @@ async function saveOAuthCredentials(provider: ProviderId, creds: any) {
 
   const config = PROVIDER_CONNECT_CONFIG[provider];
   const profileId = `${config.providerId}:default`;
-  const store = await readAuthProfiles();
+  const store = await readAuthProfilesForUpdate();
   store.profiles[profileId] = {
     provider: config.providerId,
     authType: "oauth",

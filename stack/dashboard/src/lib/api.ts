@@ -335,3 +335,66 @@ export const completeSetup = () =>
   request<{ ok: boolean }>("/dashboard-api/setup/complete", {
     method: "POST",
   });
+
+/* ------------------------------------------------------------------ */
+/*  KMS / Secret Providers                                             */
+/* ------------------------------------------------------------------ */
+
+export interface SecretProviderInfo {
+  id: "env" | "doppler" | "aws-sm" | "gcp-sm" | "azure-kv";
+  name: string;
+  configured: boolean;
+}
+
+/** List which KMS providers are configured */
+export const fetchSecretProviders = () =>
+  request<{ providers: SecretProviderInfo[] }>(
+    "/dashboard-api/secrets/providers",
+  );
+
+/** Validate (and optionally resolve) a secret reference */
+export const validateSecretRef = (value: string, resolve = false) =>
+  request<{
+    valid: boolean;
+    isRef?: boolean;
+    scheme?: string;
+    resolved?: boolean;
+    error?: string;
+  }>("/dashboard-api/secrets/validate", {
+    method: "POST",
+    body: JSON.stringify({ value, resolve }),
+  });
+
+/** Get detailed KMS credential status + field definitions */
+export const fetchKmsConfig = () =>
+  request<{
+    providers: Record<
+      string,
+      {
+        configured: boolean;
+        source: "dashboard" | "environment" | "none";
+        fields: Record<string, { set: boolean; masked?: string }>;
+      }
+    >;
+    fields: Record<
+      string,
+      { key: string; label: string; placeholder: string; secret?: boolean }[]
+    >;
+  }>("/dashboard-api/secrets/configure");
+
+/** Save KMS provider credentials */
+export const saveKmsCredentials = (
+  providerId: string,
+  credentials: Record<string, string>,
+) =>
+  request<{ ok: boolean }>("/dashboard-api/secrets/configure", {
+    method: "POST",
+    body: JSON.stringify({ providerId, credentials }),
+  });
+
+/** Remove saved KMS provider credentials */
+export const removeKmsCredentials = (providerId: string) =>
+  request<{ ok: boolean }>("/dashboard-api/secrets/configure", {
+    method: "DELETE",
+    body: JSON.stringify({ providerId }),
+  });
