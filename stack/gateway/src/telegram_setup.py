@@ -264,7 +264,17 @@ class TelegramSetupManager:
 
             setup_status = await self._fetch_setup_status()
             if setup_status:
-                await self._show_selector(chat_id, setup_status, trigger="cancelled")
+                callback_message_id = metadata.get("message_id")
+                if callback_message_id:
+                    await self.dispatcher.edit_telegram_message(
+                        chat_id,
+                        callback_message_id,
+                        self._selector_text("cancelled"),
+                        reply_markup=self._selector_keyboard(str(setup_status.get("dashboardSetupUrl") or "")),
+                        parse_mode="HTML",
+                    )
+                else:
+                    await self._show_selector(chat_id, setup_status, trigger="cancelled")
             return True
 
         if not text.startswith(PROVIDER_CALLBACK_PREFIX):
@@ -304,6 +314,15 @@ class TelegramSetupManager:
             callback_query_id,
             f"Starting {self._provider_label(provider)} setup...",
         )
+        # Edit the selector message to remove buttons while flow starts
+        callback_message_id = metadata.get("message_id")
+        if callback_message_id:
+            await self.dispatcher.edit_telegram_message(
+                chat_id,
+                callback_message_id,
+                f"Setting up {self._provider_label(provider)}...",
+                parse_mode="HTML",
+            )
         await self._start_provider_flow(chat_id, provider, setup_status)
         return True
 
@@ -467,7 +486,7 @@ class TelegramSetupManager:
         *,
         reply_to_message_id: Any = None,
         trigger: str,
-    ) -> bool:
+    ) -> int | None:
         self._sessions[chat_id] = TelegramSetupSession(
             chat_id=chat_id,
             phase="selecting_provider",
@@ -490,7 +509,7 @@ class TelegramSetupManager:
         setup_status: dict[str, Any],
         *,
         reply_to_message_id: Any = None,
-    ) -> bool:
+    ) -> int | None:
         return await self.dispatcher.send_telegram(
             chat_id,
             self._dashboard_only_text(setup_status),

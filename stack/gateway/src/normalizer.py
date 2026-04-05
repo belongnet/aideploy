@@ -48,6 +48,7 @@ def normalize_telegram(payload: dict[str, Any]) -> Optional[NormalizedMessage]:
                     "chat_title": _telegram_chat_title(chat, sender),
                     "sender_id": _string_or_none(sender.get("id")),
                     "user_id": _string_or_none(sender.get("id")),
+                    "language_code": sender.get("language_code"),
                     "reply_to_message_id": _string_or_none(
                         message.get("reply_to_message", {}).get("message_id")
                     ),
@@ -79,6 +80,7 @@ def normalize_telegram(payload: dict[str, Any]) -> Optional[NormalizedMessage]:
             "update_id": payload.get("update_id"),
             "sender_id": _string_or_none(sender.get("id")),
             "user_id": _string_or_none(sender.get("id")),
+            "language_code": sender.get("language_code"),
             "reply_to_message_id": _string_or_none(
                 message.get("reply_to_message", {}).get("message_id")
             ),

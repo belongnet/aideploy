@@ -20,6 +20,7 @@ class TelegramNormalizerTest(unittest.TestCase):
                         "id": 77,
                         "first_name": "Alice",
                         "last_name": "Ng",
+                        "language_code": "en",
                     },
                     "document": {
                         "file_id": "tg-file",
@@ -37,6 +38,7 @@ class TelegramNormalizerTest(unittest.TestCase):
         self.assertEqual(normalized.metadata["sender_id"], "77")
         self.assertEqual(normalized.metadata["user_id"], "77")
         self.assertEqual(normalized.metadata["chat_title"], "Ops Room")
+        self.assertEqual(normalized.metadata["language_code"], "en")
         self.assertEqual(normalized.metadata["attachments"][0]["file_id"], "tg-file")
 
 

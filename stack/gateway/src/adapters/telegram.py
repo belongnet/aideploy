@@ -35,6 +35,7 @@ class TelegramAdapter:
                 payload.get("message")
                 or payload.get("edited_message")
                 or payload.get("callback_query")
+                or payload.get("my_chat_member")
             )
         )
 
