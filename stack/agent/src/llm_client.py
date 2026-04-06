@@ -36,6 +36,24 @@ DEFAULT_CLIENT_IDS = {
 }
 
 
+def _extract_system_instruction(
+    messages: list[dict[str, str]],
+) -> tuple[str | None, list[dict[str, str]]]:
+    """Preserve all system prompts for providers with a single instruction field."""
+    system_parts: list[str] = []
+    chat_messages: list[dict[str, str]] = []
+    for msg in messages:
+        if msg["role"] == "system":
+            content = msg["content"].strip()
+            if content:
+                system_parts.append(content)
+        else:
+            chat_messages.append(msg)
+    if not system_parts:
+        return None, chat_messages
+    return "\n\n".join(system_parts), chat_messages
+
+
 # ── Base Adapter ─────────────────────────────────────────────
 
 
@@ -210,14 +228,7 @@ class OpenAIAdapter(LLMAdapter):
         Uses instructions field for system prompt and stream: true (required for codex endpoint).
         Parses SSE events to collect response text.
         """
-        # Separate system prompt from user messages
-        instructions = None
-        input_messages = []
-        for msg in messages:
-            if msg["role"] == "system":
-                instructions = msg["content"]
-            else:
-                input_messages.append(msg)
+        instructions, input_messages = _extract_system_instruction(messages)
 
         payload: dict[str, Any] = {
             "model": self.config.model,
@@ -316,13 +327,7 @@ class OpenAIAdapter(LLMAdapter):
 
         Uses instructions field for system prompt (not in input array).
         """
-        instructions = None
-        input_messages = []
-        for msg in messages:
-            if msg["role"] == "system":
-                instructions = msg["content"]
-            else:
-                input_messages.append(msg)
+        instructions, input_messages = _extract_system_instruction(messages)
 
         payload: dict[str, Any] = {
             "model": self.config.model,
@@ -402,14 +407,7 @@ class AnthropicAdapter(LLMAdapter):
         if "anthropic-version" not in headers:
             headers["anthropic-version"] = "2024-01-01"
 
-        # Anthropic separates system message
-        system_msg = None
-        chat_messages = []
-        for msg in messages:
-            if msg["role"] == "system":
-                system_msg = msg["content"]
-            else:
-                chat_messages.append(msg)
+        system_msg, chat_messages = _extract_system_instruction(messages)
 
         payload: dict[str, Any] = {
             "model": self.config.model,
@@ -454,13 +452,7 @@ class AnthropicAdapter(LLMAdapter):
         if "anthropic-version" not in headers:
             headers["anthropic-version"] = "2024-01-01"
 
-        system_msg = None
-        chat_messages = []
-        for msg in messages:
-            if msg["role"] == "system":
-                system_msg = msg["content"]
-            else:
-                chat_messages.append(msg)
+        system_msg, chat_messages = _extract_system_instruction(messages)
 
         payload: dict[str, Any] = {
             "model": self.config.model,
@@ -510,16 +502,13 @@ class GeminiAdapter(LLMAdapter):
             raise RuntimeError("No Gemini API key configured.")
 
         # Convert to Gemini format
+        system_instruction, chat_messages = _extract_system_instruction(messages)
         contents = []
-        system_instruction = None
-        for msg in messages:
-            if msg["role"] == "system":
-                system_instruction = msg["content"]
-            else:
-                role = "user" if msg["role"] == "user" else "model"
-                contents.append(
-                    {"role": role, "parts": [{"text": msg["content"]}]}
-                )
+        for msg in chat_messages:
+            role = "user" if msg["role"] == "user" else "model"
+            contents.append(
+                {"role": role, "parts": [{"text": msg["content"]}]}
+            )
 
         payload: dict[str, Any] = {
             "contents": contents,
@@ -566,16 +555,13 @@ class GeminiAdapter(LLMAdapter):
         if not api_key:
             raise RuntimeError("No Gemini API key configured.")
 
+        system_instruction, chat_messages = _extract_system_instruction(messages)
         contents = []
-        system_instruction = None
-        for msg in messages:
-            if msg["role"] == "system":
-                system_instruction = msg["content"]
-            else:
-                role = "user" if msg["role"] == "user" else "model"
-                contents.append(
-                    {"role": role, "parts": [{"text": msg["content"]}]}
-                )
+        for msg in chat_messages:
+            role = "user" if msg["role"] == "user" else "model"
+            contents.append(
+                {"role": role, "parts": [{"text": msg["content"]}]}
+            )
 
         payload: dict[str, Any] = {
             "contents": contents,

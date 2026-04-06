@@ -9,6 +9,7 @@ receiving messages from the gateway and serving the dashboard API.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -31,7 +32,14 @@ from .bus_client import BusClient
 from .db import Database
 from .knowledge import build_knowledge_prompt, create_knowledge_provider
 from .llm_client import LLMAdapter, create_llm_adapter
-from .memory import build_memory_prompt, create_memory_provider, resolve_user_key
+from .memory import (
+    build_memory_prompt,
+    build_memory_summary,
+    create_memory_provider,
+    embed_text,
+    resolve_user_key,
+    vector_literal,
+)
 from .models import (
     ActionType,
     AnalyticsEvent,
@@ -47,6 +55,7 @@ from .models import (
     MessageRole,
     MemoryHit,
     MemoryItem,
+    MemoryScope,
     OAuthTokens,
     Task,
     TurnContext,
@@ -131,6 +140,12 @@ async def lifespan(app: FastAPI):
     llm = create_llm_adapter(db, config)
     memory_provider = create_memory_provider(db, config)
     knowledge_provider = create_knowledge_provider(config)
+
+    # Seed system memories (dashboard URL, capabilities) — idempotent
+    try:
+        await _seed_system_memories()
+    except Exception as exc:
+        logger.warning("Could not seed system memories: %s", exc)
 
     # Bus client
     bus = BusClient(
@@ -433,6 +448,135 @@ async def _build_missing_ai_reply(config: Any, error_text: str = "") -> str:
     return "\n".join(lines)
 
 
+async def _build_infrastructure_context(config: Any) -> str:
+    """Build a system-prompt supplement with dashboard URL and capability boundaries."""
+    dashboard_url = await _resolve_dashboard_setup_url()
+    dashboard_base = dashboard_url.rsplit("/setup", 1)[0]
+    provider_label = PROVIDER_LABELS.get(
+        config.model_provider.value, config.model_provider.value.title()
+    )
+
+    return "\n".join(
+        [
+            f"Your name is {config.agent_name}.",
+            f"You are powered by {provider_label} ({config.model}).",
+            "",
+            "CAPABILITIES (what you CAN do in this conversation):",
+            "- Answer questions and have conversations",
+            "- Help with tasks and provide information",
+            "- Remember facts the user shares (long-term memory)",
+            "",
+            "LIMITATIONS (what you CANNOT do — direct users to the dashboard instead):",
+            f"- Change AI provider or switch models → {dashboard_base}",
+            f"- Configure agent settings (temperature, tokens, system prompt) → {dashboard_base}",
+            f"- Manage API keys or OAuth credentials → {dashboard_base}",
+            f"- Add or remove messaging channels → {dashboard_base}",
+            "",
+            f"Dashboard URL: {dashboard_base}",
+            "If a user asks to connect a different AI, switch providers, or change any setting listed above,",
+            "tell them to open the dashboard and provide the URL. Never invent features, plugins, or error",
+            "messages about capabilities you do not have.",
+        ]
+    )
+
+
+def _is_provider_switch_intent(text: str, current_provider: str) -> str | None:
+    """Return target provider ID if the user wants to switch providers, else None."""
+    normalized = text.strip().lower()
+    if not normalized:
+        return None
+
+    provider_map = {
+        "openai": "openai",
+        "chatgpt": "openai",
+        "gpt": "openai",
+        "claude": "anthropic",
+        "anthropic": "anthropic",
+        "gemini": "gemini",
+        "kimi": "kimi",
+        "deepseek": "deepseek",
+    }
+    for keyword, provider_id in provider_map.items():
+        if provider_id == current_provider or keyword not in normalized:
+            continue
+        explicit_patterns = (
+            rf"^\s*(?:please\s+)?connect\s+(?:me\s+to\s+)?{keyword}\b",
+            rf"^\s*(?:please\s+)?switch\s+(?:me\s+)?to\s+{keyword}\b",
+            rf"^\s*(?:please\s+)?change\s+(?:me\s+)?to\s+{keyword}\b",
+            rf"^\s*(?:please\s+)?set\s*up\s+{keyword}\b",
+            rf"^\s*(?:please\s+)?link\s+{keyword}\b",
+            rf"^\s*(?:please\s+)?use\s+{keyword}\s+instead\b",
+        )
+        if any(re.search(pattern, normalized) for pattern in explicit_patterns):
+            return provider_id
+    return None
+
+
+async def _build_provider_switch_reply(target_provider: str, config: Any) -> str:
+    """Build a response directing the user to the dashboard to switch providers."""
+    setup_url = await _resolve_dashboard_setup_url()
+    target_label = PROVIDER_LABELS.get(target_provider, target_provider.title())
+    current_label = PROVIDER_LABELS.get(
+        config.model_provider.value, config.model_provider.value.title()
+    )
+
+    return "\n".join(
+        [
+            f"I'm currently using {current_label}. Switching to {target_label} requires the dashboard.",
+            "",
+            f"1. Open {setup_url}",
+            f"2. Select {target_label} as your AI provider",
+            "3. Complete the authentication setup",
+            "4. Come back here — your messages will use the new provider",
+        ]
+    )
+
+
+async def _seed_system_memories() -> None:
+    """Seed infrastructure-awareness memories on first boot. Idempotent."""
+    dashboard_url = await _resolve_dashboard_setup_url()
+    dashboard_base = dashboard_url.rsplit("/setup", 1)[0]
+
+    seed_contents = [
+        (
+            f"The agent dashboard is at {dashboard_base}. Users should visit "
+            "it to manage settings, connect AI providers, configure channels, "
+            "and adjust model parameters."
+        ),
+        (
+            "Switching AI providers (e.g. from ChatGPT to Claude or vice versa) "
+            f"requires the dashboard at {dashboard_base}. This cannot be done "
+            "through chat."
+        ),
+        (
+            f"Dashboard configuration options at {dashboard_base}: AI provider "
+            "and model selection, temperature and max-token settings, system "
+            "prompt editing, OAuth and API key management, messaging channel "
+            "setup (Telegram, WhatsApp, Slack, Discord)."
+        ),
+    ]
+
+    for content in seed_contents:
+        digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        existing = await db.find_memory_by_hash(
+            "__system__", MemoryScope.LONG_TERM, digest
+        )
+        if existing:
+            continue
+
+        item = MemoryItem(
+            user_key="__system__",
+            scope=MemoryScope.LONG_TERM,
+            content=content,
+            summary=build_memory_summary(content),
+            content_sha256=digest,
+            metadata={"source": "seed", "version": "1"},
+        )
+        embedding = vector_literal(embed_text(content))
+        await db.insert_memory(item, embedding)
+        logger.info("Seeded system memory: %s", item.summary[:60])
+
+
 def _is_auth_configuration_error(exc: Exception) -> bool:
     text = str(exc).lower()
     return any(
@@ -564,7 +708,18 @@ async def process_message(incoming: IncomingMessage) -> str:
 
     # Step 5: Build conversation context
     setup_help_response: str | None = None
-    if _is_setup_help_intent(incoming.text) and not await _is_provider_connected(
+
+    # Case 1: User wants to switch to a different provider
+    switch_target = _is_provider_switch_intent(
+        incoming.text, config.model_provider.value
+    )
+    if switch_target:
+        setup_help_response = await _build_provider_switch_reply(
+            switch_target, config
+        )
+
+    # Case 2: Setup help when current provider is disconnected
+    elif _is_setup_help_intent(incoming.text) and not await _is_provider_connected(
         config, config.model_provider.value
     ):
         setup_help_response = await _build_ai_connect_instructions(
@@ -582,8 +737,10 @@ async def process_message(incoming: IncomingMessage) -> str:
         tokens_used = 0
     else:
         history = await db.get_messages(conv.id, limit=20)
+        infra_context = await _build_infrastructure_context(config)
+        full_system = config.system_prompt + "\n\n" + infra_context
         messages: list[dict[str, str]] = [
-            {"role": "system", "content": config.system_prompt}
+            {"role": "system", "content": full_system}
         ]
 
         memory_hits = await _recall_memory(config, user_key, incoming)
