@@ -52,7 +52,7 @@ const PROVIDER_SETUP: Record<
     label: "Claude",
     color: "#D4A574",
     hint:
-      "Click the button to get a sign-in link. Open it in your browser, sign in with your Claude account, then come back here and paste what you see.",
+      "Click the button to get a sign-in link. Open it in your browser, sign in with your Claude account, then come back here and paste what you see. Aideploy will route Claude traffic through its local billing proxy on the gateway.",
     buttonLabel: "New Browser Link",
     steps: [
       "Click the button below to get a one-time sign-in link",
