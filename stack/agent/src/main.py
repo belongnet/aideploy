@@ -429,7 +429,8 @@ async def _build_ai_connect_instructions(provider: str) -> str:
                 '2. Press "New Browser Link" under Claude',
                 "3. Sign in in your browser on your own device",
                 "4. Paste the Claude redirect URL or one-time code back into the setup card",
-                "5. Return here and send your message again",
+                "5. AiDeploy will route Claude traffic through the gateway's local Anthropic billing proxy",
+                "6. Return here and send your message again",
             ]
         )
 
@@ -478,6 +479,11 @@ async def _build_infrastructure_context(config: Any) -> str:
         [
             f"Your name is {config.agent_name}.",
             f"You are powered by {provider_label} ({config.model}).",
+            "",
+            "SETUP FACTS (do not invent alternatives):",
+            "- Claude on this deployment is connected from the dashboard browser flow, not ACP or Claude Code plugins",
+            "- After Claude browser sign-in, requests run through the gateway's local Anthropic billing proxy",
+            "- Never tell users to enable ACP, install acpx/runtime plugins, or paste Anthropic API keys in chat",
             "",
             "CAPABILITIES (what you CAN do in this conversation):",
             "- Answer questions and have conversations",
@@ -569,6 +575,20 @@ async def _build_provider_switch_reply(target_provider: str, config: Any) -> str
         config.model_provider.value, config.model_provider.value.title()
     )
 
+    if target_provider == "anthropic":
+        return "\n".join(
+            [
+                f"I'm currently using {current_label}. Switching to Claude uses the dashboard browser flow.",
+                "",
+                f"1. Open {setup_url}",
+                '2. Press "New Browser Link" under Claude',
+                "3. Sign in in your browser on your own device",
+                "4. Paste the Claude redirect URL or one-time code back into the setup card",
+                "5. Come back here — Claude will run through the gateway's local billing proxy",
+                "Do not use ACP, acpx plugins, or Anthropic API keys in chat for this deployment.",
+            ]
+        )
+
     return "\n".join(
         [
             f"I'm currently using {current_label}. Switching to {target_label} requires the dashboard.",
@@ -596,6 +616,12 @@ async def _seed_system_memories() -> None:
             "Switching AI providers (e.g. from ChatGPT to Claude or vice versa) "
             f"requires the dashboard at {dashboard_base}. This cannot be done "
             "through chat."
+        ),
+        (
+            "Claude on this deployment is connected from the dashboard browser "
+            "flow and then routed through the gateway's local Anthropic billing "
+            "proxy. It does not use ACP, acpx runtime plugins, or Anthropic "
+            "API keys pasted into chat."
         ),
         (
             f"Dashboard configuration options at {dashboard_base}: AI provider "

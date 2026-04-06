@@ -1,6 +1,7 @@
 import sys
 from types import SimpleNamespace
 import unittest
+from unittest.mock import AsyncMock, patch
 
 sys.modules.setdefault(
     "asyncpg",
@@ -20,6 +21,8 @@ sys.modules.setdefault(
 
 from src.main import (
     _filter_transient_setup_history,
+    _build_infrastructure_context,
+    _build_provider_switch_reply,
     _is_provider_switch_intent,
     _is_transient_setup_message,
     _looks_like_localhost_redirect,
@@ -109,7 +112,49 @@ class SetupArtifactFilterTest(unittest.TestCase):
 
         self.assertEqual(len(history), 1)
         self.assertEqual(history[0].content, "yoyo")
+class ClaudeSetupInstructionsTest(unittest.IsolatedAsyncioTestCase):
+    async def test_provider_switch_reply_uses_browser_flow_and_proxy(self) -> None:
+        config = SimpleNamespace(
+            agent_name="Kyle",
+            model="gpt-5.3-codex",
+            model_provider=SimpleNamespace(value="openai"),
+        )
 
+        with patch(
+            "src.main._resolve_dashboard_setup_url",
+            AsyncMock(return_value="https://dashboard.example/setup"),
+        ):
+            reply = await _build_provider_switch_reply("anthropic", config)
+
+        self.assertIn('Press "New Browser Link" under Claude', reply)
+        self.assertIn("local billing proxy", reply)
+        self.assertIn("Do not use ACP", reply)
+
+    async def test_infrastructure_context_explains_claude_proxy_constraints(self) -> None:
+        config = SimpleNamespace(
+            agent_name="Kyle",
+            model="gpt-5.3-codex",
+            model_provider=SimpleNamespace(value="openai"),
+        )
+
+        with patch(
+            "src.main._resolve_dashboard_setup_url",
+            AsyncMock(return_value="https://dashboard.example/setup"),
+        ):
+            context = await _build_infrastructure_context(config)
+
+        self.assertIn(
+            "Claude on this deployment is connected from the dashboard browser flow, not ACP or Claude Code plugins",
+            context,
+        )
+        self.assertIn(
+            "gateway's local Anthropic billing proxy",
+            context,
+        )
+        self.assertIn(
+            "Never tell users to enable ACP, install acpx/runtime plugins, or paste Anthropic API keys in chat",
+            context,
+        )
 
 if __name__ == "__main__":
     unittest.main()
