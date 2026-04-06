@@ -114,6 +114,11 @@ const DEFAULT_MODELS: Record<string, string> = {
   openai: "openai-codex/gpt-5.3-codex",
   anthropic: "anthropic/claude-opus-4-6",
 };
+const RUNTIME_MODE = String(
+  process.env.AIDEPLOY_AGENT_RUNTIME || process.env.AIDEPLOY_RUNTIME_MODE || "docker",
+)
+  .trim()
+  .toLowerCase();
 const ANTHROPIC_BILLING_PROXY_BASE_URL =
   "http://anthropic-billing-proxy:18801";
 const DEFAULT_MEDIA_TOOL_CONFIG = {
@@ -173,15 +178,23 @@ function normalizeAuthType(value: unknown): string {
   return String(value ?? "").trim().toLowerCase();
 }
 
+function anthropicBillingProxyBaseUrlForRuntime(runtime: string): string {
+  return runtime === "" || runtime === "docker"
+    ? ANTHROPIC_BILLING_PROXY_BASE_URL
+    : "";
+}
+
 function configUsesAnthropicBillingProxy(
   config: Record<string, unknown>,
 ): boolean {
+  const proxyBaseUrl = anthropicBillingProxyBaseUrlForRuntime(RUNTIME_MODE);
+  if (!proxyBaseUrl) return false;
   const models = (config.models ?? {}) as Record<string, unknown>;
   const providers = (models.providers ?? {}) as Record<string, unknown>;
   const anthropic = (providers.anthropic ?? {}) as Record<string, unknown>;
   return (
     typeof anthropic.baseUrl === "string" &&
-    anthropic.baseUrl.trim() === ANTHROPIC_BILLING_PROXY_BASE_URL
+    anthropic.baseUrl.trim() === proxyBaseUrl
   );
 }
 
@@ -222,9 +235,10 @@ function applyAnthropicBillingProxyConfig(
 ): Record<string, unknown> {
   const next = { ...config };
   const primaryModel = configuredPrimaryModelFromConfig(next);
+  const proxyBaseUrl = anthropicBillingProxyBaseUrlForRuntime(RUNTIME_MODE);
   let enableProxy = false;
 
-  if (inferModelProvider(primaryModel) === "anthropic") {
+  if (proxyBaseUrl && inferModelProvider(primaryModel) === "anthropic") {
     const profile = findAnthropicProfile(store);
     if (isAnthropicApiKeyProfile(profile)) {
       enableProxy = false;
@@ -241,8 +255,8 @@ function applyAnthropicBillingProxyConfig(
     ...((providers.anthropic ?? {}) as Record<string, unknown>),
   };
 
-  if (enableProxy) {
-    anthropic.baseUrl = ANTHROPIC_BILLING_PROXY_BASE_URL;
+  if (enableProxy && proxyBaseUrl) {
+    anthropic.baseUrl = proxyBaseUrl;
     providers.anthropic = anthropic;
   } else {
     delete anthropic.baseUrl;
