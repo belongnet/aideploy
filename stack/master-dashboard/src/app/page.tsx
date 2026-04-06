@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
 import Link from "next/link";
 import { useDashboardStore } from "@/lib/store";
+import { useRealtimeSync } from "@/lib/use-realtime";
 import {
   providerLabel,
   providerIcon,
@@ -21,19 +21,10 @@ export default function OverviewPage() {
     loadingAgents,
     loadingOverview,
     fetchAgents,
-    fetchOverview,
   } = useDashboardStore();
 
-  /* Fetch on mount and poll every 15 seconds */
-  useEffect(() => {
-    fetchAgents();
-    fetchOverview();
-    const interval = setInterval(() => {
-      fetchAgents();
-      fetchOverview();
-    }, 15_000);
-    return () => clearInterval(interval);
-  }, [fetchAgents, fetchOverview]);
+  /* Supabase Realtime — replaces 15s polling with live subscriptions */
+  useRealtimeSync();
 
   const loading = loadingAgents || loadingOverview;
 

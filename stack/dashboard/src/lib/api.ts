@@ -337,6 +337,18 @@ export const completeSetup = () =>
   });
 
 /* ------------------------------------------------------------------ */
+/*  Supabase Storage                                                   */
+/* ------------------------------------------------------------------ */
+
+/** Get a signed URL for a file stored in the deployment's storage bucket */
+export const getStorageSignedUrl = (storagePath: string) => {
+  const params = new URLSearchParams({ path: storagePath });
+  return request<{ signedUrl: string }>(
+    `/dashboard-api/storage?${params}`,
+  );
+};
+
+/* ------------------------------------------------------------------ */
 /*  KMS / Secret Providers                                             */
 /* ------------------------------------------------------------------ */
 

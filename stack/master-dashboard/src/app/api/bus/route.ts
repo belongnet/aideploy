@@ -13,32 +13,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import type { BusMessage } from "@/lib/types";
-
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgresql://openclaw:openclaw@localhost:5432/openclaw";
-
-/* ------------------------------------------------------------------ */
-/*  Database helper                                                     */
-/* ------------------------------------------------------------------ */
-
-async function query<T = Record<string, unknown>>(
-  sql: string,
-  params: unknown[] = [],
-): Promise<T[]> {
-  try {
-    const { default: pg } = await import("pg");
-    const client = new pg.Client({ connectionString: DATABASE_URL });
-    await client.connect();
-    try {
-      const result = await client.query(sql, params);
-      return result.rows as T[];
-    } finally {
-      await client.end();
-    }
-  } catch {
-    console.warn("[api/bus] Database unavailable, returning mock data");
-    return [];
-  }
-}
+import { rawQuery } from "@/lib/db";
 
 /* ------------------------------------------------------------------ */
 /*  GET handler                                                         */
@@ -84,7 +59,7 @@ export async function POST(request: NextRequest) {
 
     const days = Math.max(older_than_days ?? 7, 1);
 
-    const rows = await query<{ cleanup_bus_messages: number }>(
+    const rows = await rawQuery<{ cleanup_bus_messages: number }>(
       `SELECT cleanup_bus_messages($1) AS cleanup_bus_messages`,
       [days],
     );
@@ -139,7 +114,7 @@ async function fetchBusMessages(opts: {
     LIMIT $${paramIdx}
   `;
 
-  const rows = await query<BusMessage>(sql, params);
+  const rows = await rawQuery<BusMessage>(sql, params);
 
   /* Fall back to mock data if DB is empty / unreachable */
   if (rows.length === 0) {

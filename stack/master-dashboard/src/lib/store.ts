@@ -3,6 +3,9 @@
  *
  * Keeps fetched data in memory so pages feel snappy when switching tabs.
  * Each slice has a fetch function that calls the corresponding API route.
+ *
+ * Realtime updates (via Supabase) use appendBusMessage / patchAgent
+ * to apply incremental changes without a full re-fetch.
  */
 
 import { create } from "zustand";
@@ -24,11 +27,15 @@ interface DashboardState {
   loadingOverview: boolean;
   loadingBus: boolean;
 
-  /* Actions */
+  /* Full-fetch actions */
   fetchAgents: () => Promise<void>;
   fetchOverview: () => Promise<void>;
   fetchBusMessages: (filters?: BusFilters) => Promise<void>;
   fetchDeployInfo: () => Promise<void>;
+
+  /* Realtime incremental actions */
+  appendBusMessage: (row: Record<string, unknown>) => void;
+  patchAgent: (row: Record<string, unknown>) => void;
 }
 
 export interface BusFilters {
@@ -37,11 +44,13 @@ export interface BusFilters {
   limit?: number;
 }
 
+const MAX_BUS_MESSAGES = 200;
+
 /* ------------------------------------------------------------------ */
 /*  Store                                                              */
 /* ------------------------------------------------------------------ */
 
-export const useDashboardStore = create<DashboardState>((set) => ({
+export const useDashboardStore = create<DashboardState>((set, get) => ({
   agents: [],
   overview: null,
   busMessages: [],
@@ -109,5 +118,37 @@ export const useDashboardStore = create<DashboardState>((set) => ({
     } catch (err) {
       console.error("[store] fetchDeployInfo error:", err);
     }
+  },
+
+  /**
+   * Append a bus message received via Supabase Realtime (INSERT event).
+   * Prepends to the list and caps at MAX_BUS_MESSAGES.
+   */
+  appendBusMessage: (row) => {
+    const msg = row as unknown as BusMessage;
+    if (!msg.id) return;
+
+    const current = get().busMessages;
+    // Avoid duplicates
+    if (current.some((m) => m.id === msg.id)) return;
+
+    set({
+      busMessages: [msg, ...current].slice(0, MAX_BUS_MESSAGES),
+    });
+  },
+
+  /**
+   * Patch an agent's fields from a Supabase Realtime UPDATE event.
+   * Merges the changed fields into the existing agent object.
+   */
+  patchAgent: (row) => {
+    const id = row.id as string;
+    if (!id) return;
+
+    set({
+      agents: get().agents.map((agent) =>
+        agent.id === id ? { ...agent, ...row } : agent,
+      ),
+    });
   },
 }));

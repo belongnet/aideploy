@@ -96,15 +96,21 @@ services:
       AGENT_NAME: "{{this.name}}"
       AGENT_HOST: "agent-{{this.index}}"
       AGENT_PORT: "{{this.agent_port}}"
+      DEPLOY_ID: "{{../deploy_id}}"
       GATEWAY_INTERNAL_URL: "http://gateway-{{this.index}}:{{this.gateway_port}}"
       AGENT_SERVICE_TOKEN: "${AGENT_SERVICE_TOKEN:?AGENT_SERVICE_TOKEN is required}"
       SUPABASE_URL: "${SUPABASE_URL:-http://supabase-kong:8000}"
       SUPABASE_PUBLIC_URL: "${SUPABASE_PUBLIC_URL:-http://localhost:8000}"
       SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:-}"
+      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-}"
+      SUPABASE_STORAGE_BUCKET: "${SUPABASE_STORAGE_BUCKET:-agent-files}"
+      NEXT_PUBLIC_SUPABASE_URL: "${SUPABASE_PUBLIC_URL:-http://localhost:8000}"
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:-}"
     depends_on:
       - agent-{{this.index}}
     networks:
       - openclaw
+      - supabase
   {{/each}}
 
 networks:

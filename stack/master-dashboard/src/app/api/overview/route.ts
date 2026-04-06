@@ -12,8 +12,8 @@
 
 import { NextResponse } from "next/server";
 import type { OverviewStats, DeployInfo } from "@/lib/types";
+import { fromTable, rawQuery } from "@/lib/db";
 
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgresql://openclaw:openclaw@localhost:5432/openclaw";
 const AGENT_SERVICE_TOKEN = process.env.AGENT_SERVICE_TOKEN ?? "";
 const AGENT_INTERNAL_HOST_TEMPLATE =
   process.env.AGENT_INTERNAL_HOST_TEMPLATE ?? "agent-{index1}";
@@ -24,30 +24,6 @@ function resolveAgentInternalHost(port: number): string {
   return AGENT_INTERNAL_HOST_TEMPLATE
     .replace("{index0}", String(index0))
     .replace("{index1}", String(index1));
-}
-
-/* ------------------------------------------------------------------ */
-/*  Database helper (same pattern as agents route)                      */
-/* ------------------------------------------------------------------ */
-
-async function query<T = Record<string, unknown>>(
-  sql: string,
-  params: unknown[] = [],
-): Promise<T[]> {
-  try {
-    const { default: pg } = await import("pg");
-    const client = new pg.Client({ connectionString: DATABASE_URL });
-    await client.connect();
-    try {
-      const result = await client.query(sql, params);
-      return result.rows as T[];
-    } finally {
-      await client.end();
-    }
-  } catch {
-    console.warn("[api/overview] Database unavailable, returning mock data");
-    return [];
-  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -75,30 +51,22 @@ export async function GET() {
 /* ------------------------------------------------------------------ */
 
 async function fetchStats(): Promise<OverviewStats> {
-  /* Total + status counts */
-  const agentRows = await query<{
-    total: string;
-    running: string;
-  }>(
-    `SELECT
-       COUNT(*)::text AS total,
-       COUNT(*) FILTER (WHERE status = 'running')::text AS running
-     FROM public.agents`,
+  /* Total + status counts — Supabase PostgREST for the agents table */
+  const allAgents = await fromTable<{ status: string; schema_name: string; agent_port: number }>(
+    "agents",
+    { select: "status,schema_name,agent_port" },
   );
 
-  const total = parseInt(agentRows[0]?.total ?? "0", 10);
-  const running = parseInt(agentRows[0]?.running ?? "0", 10);
+  const total = allAgents.length;
+  const running = allAgents.filter((a) => a.status === "running").length;
 
-  /* Message count today across all agent schemas */
+  /* Message count today across all agent schemas (cross-schema — needs raw SQL) */
   let totalMessagesToday = 0;
   try {
-    const schemaRows = await query<{ schema_name: string }>(
-      `SELECT schema_name FROM public.agents`,
-    );
     const counts = await Promise.all(
-      schemaRows.map(async ({ schema_name }) => {
+      allAgents.map(async ({ schema_name }) => {
         try {
-          const rows = await query<{ count: string }>(
+          const rows = await rawQuery<{ count: string }>(
             `SELECT COUNT(*)::text AS count FROM "${schema_name}".messages
              WHERE created_at >= CURRENT_DATE`,
           );
@@ -113,8 +81,8 @@ async function fetchStats(): Promise<OverviewStats> {
     /* Ignore — schemas might not exist yet */
   }
 
-  /* Bus message count */
-  const busRows = await query<{ count: string }>(
+  /* Bus message count must stay exact even when the table grows large */
+  const busRows = await rawQuery<{ count: string }>(
     `SELECT COUNT(*)::text AS count FROM public.message_bus`,
   );
   const totalBus = parseInt(busRows[0]?.count ?? "0", 10);
@@ -127,9 +95,7 @@ async function fetchStats(): Promise<OverviewStats> {
   /* For health check, probe each running agent */
   let healthyCount = 0;
   try {
-    const portRows = await query<{ agent_port: number }>(
-      `SELECT agent_port FROM public.agents WHERE status = 'running'`,
-    );
+    const portRows = allAgents.filter((a) => a.status === "running");
     const checks = await Promise.all(
       portRows.map(async ({ agent_port }) => {
         try {
@@ -172,13 +138,11 @@ async function fetchStats(): Promise<OverviewStats> {
 /* ------------------------------------------------------------------ */
 
 async function fetchDeployInfo(): Promise<DeployInfo | null> {
-  const rows = await query<DeployInfo>(
-    `SELECT id, deploy_id, cloud_provider, region, server_size,
-            server_ip, tailscale_ip, agent_count, created_at
-     FROM public.deploy_info
-     ORDER BY created_at DESC
-     LIMIT 1`,
-  );
+  const rows = await fromTable<DeployInfo>("deploy_info", {
+    select: "id,deploy_id,cloud_provider,region,server_size,server_ip,tailscale_ip,agent_count,created_at",
+    order: { column: "created_at", ascending: false },
+    limit: 1,
+  });
 
   if (rows.length === 0) {
     return getMockDeployInfo();

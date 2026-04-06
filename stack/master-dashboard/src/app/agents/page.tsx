@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useCallback } from "react";
+import { useCallback } from "react";
 import Link from "next/link";
 import { useDashboardStore } from "@/lib/store";
+import { useRealtimeSync } from "@/lib/use-realtime";
 import {
   providerLabel,
   channelLabel,
   statusColor,
-  formatTime,
 } from "@/lib/helpers";
 import type { Agent } from "@/lib/types";
 
@@ -18,11 +18,8 @@ import type { Agent } from "@/lib/types";
 export default function AgentsPage() {
   const { agents, loadingAgents, fetchAgents } = useDashboardStore();
 
-  useEffect(() => {
-    fetchAgents();
-    const interval = setInterval(fetchAgents, 15_000);
-    return () => clearInterval(interval);
-  }, [fetchAgents]);
+  /* Supabase Realtime — replaces 15s polling with live subscriptions */
+  useRealtimeSync();
 
   /** Perform an action on a single agent or all agents */
   const agentAction = useCallback(

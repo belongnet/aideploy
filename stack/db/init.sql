@@ -317,3 +317,47 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_agents_updated_at
     BEFORE UPDATE ON public.agents
     FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- ══════════════════════════════════════════════════════════════
+-- SUPABASE REALTIME — publish shared tables for live subscriptions
+-- ══════════════════════════════════════════════════════════════
+
+-- Agents table: dashboard subscribes to status changes
+ALTER TABLE public.agents REPLICA IDENTITY FULL;
+
+-- Message bus: dashboard subscribes to new bus events
+ALTER TABLE public.message_bus REPLICA IDENTITY FULL;
+
+-- Deploy info: dashboard subscribes to deployment updates
+ALTER TABLE public.deploy_info REPLICA IDENTITY FULL;
+
+-- Add tables to the Supabase Realtime publication
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE public.agents;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+  WHEN undefined_object THEN
+    CREATE PUBLICATION supabase_realtime FOR TABLE public.agents;
+END;
+$$;
+
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE public.message_bus;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+  WHEN undefined_object THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.message_bus;
+END;
+$$;
+
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE public.deploy_info;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+  WHEN undefined_object THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.deploy_info;
+END;
+$$;

@@ -7,6 +7,7 @@ import {
   fetchConversationMessages,
   toggleStar,
 } from "@/lib/api";
+import { useConversationRealtime } from "@/lib/supabase-realtime";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -91,6 +92,19 @@ export default function ConversationsPage() {
       loadMessages(selectedId);
     }
   }, [selectedId, loadMessages]);
+
+  /* Supabase Realtime — live conversation + message updates */
+  useConversationRealtime({
+    onNewMessage: useCallback(() => {
+      // Re-fetch the active thread when a new message arrives
+      if (selectedId) loadMessages(selectedId);
+      // Also refresh the conversation list (for updated lastMessage/count)
+      loadConversations();
+    }, [selectedId, loadMessages, loadConversations]),
+    onConversationUpdate: useCallback(() => {
+      loadConversations();
+    }, [loadConversations]),
+  });
 
   /* Auto-scroll to bottom of thread */
   useEffect(() => {

@@ -283,6 +283,55 @@ def _incoming_attachments(metadata: dict[str, Any]) -> list[dict[str, Any]]:
     return attachments if isinstance(attachments, list) else []
 
 
+def _sanitize_attachment_for_browser(raw_attachment: Any) -> dict[str, Any] | None:
+    if not isinstance(raw_attachment, dict):
+        return None
+
+    allowed_fields = {
+        "provider",
+        "kind",
+        "display_name",
+        "original_name",
+        "content_type",
+        "size_bytes",
+        "width",
+        "height",
+        "duration_seconds",
+        "emoji",
+        "caption",
+        "upload_error",
+        "upload_skipped",
+        "permalink",
+    }
+    return {
+        key: value for key, value in raw_attachment.items() if key in allowed_fields
+    }
+
+
+def _sanitize_message_metadata_for_browser(metadata: Any) -> dict[str, Any]:
+    if not isinstance(metadata, dict):
+        return {}
+
+    sanitized = dict(metadata)
+    attachments = sanitized.get("attachments")
+    if isinstance(attachments, list):
+        sanitized["attachments"] = [
+            attachment
+            for raw_attachment in attachments
+            for attachment in [_sanitize_attachment_for_browser(raw_attachment)]
+            if attachment
+        ]
+    return sanitized
+
+
+def _message_payload_for_browser(message: Message) -> dict[str, Any]:
+    payload = message.model_dump()
+    payload["metadata"] = _sanitize_message_metadata_for_browser(
+        payload.get("metadata")
+    )
+    return payload
+
+
 async def _record_shared_outgoing_for_conversation(
     conversation_id: uuid.UUID,
     text: str,
@@ -1206,7 +1255,7 @@ async def get_messages(
     limit: int = Query(100, ge=1, le=500),
 ):
     messages = await db.get_messages(conversation_id, limit=limit)
-    return [m.model_dump() for m in messages]
+    return [_message_payload_for_browser(m) for m in messages]
 
 
 @app.put("/api/conversations/{conversation_id}/star")

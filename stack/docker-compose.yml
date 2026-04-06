@@ -100,11 +100,16 @@ services:
       AGENT_NAME: "Local Agent"
       AGENT_HOST: "agent-1"
       AGENT_PORT: "8101"
+      DEPLOY_ID: "${DEPLOY_ID:-local-dev}"
       GATEWAY_INTERNAL_URL: "http://gateway-1:8081"
       AGENT_SERVICE_TOKEN: "${AGENT_SERVICE_TOKEN:?AGENT_SERVICE_TOKEN is required}"
       SUPABASE_URL: "${SUPABASE_URL:-http://supabase-kong:8000}"
       SUPABASE_PUBLIC_URL: "${SUPABASE_PUBLIC_URL:-http://localhost:8000}"
       SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:-}"
+      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-}"
+      SUPABASE_STORAGE_BUCKET: "${SUPABASE_STORAGE_BUCKET:-agent-files}"
+      NEXT_PUBLIC_SUPABASE_URL: "${SUPABASE_PUBLIC_URL:-http://localhost:8000}"
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:-}"
       # KMS / secret provider credentials (optional)
       DOPPLER_TOKEN: "${DOPPLER_TOKEN:-}"
       DOPPLER_PROJECT: "${DOPPLER_PROJECT:-}"
@@ -121,6 +126,7 @@ services:
       - agent-1
     networks:
       - openclaw
+      - supabase
 
   qmd:
     profiles: ["qmd"]

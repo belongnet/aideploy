@@ -18,45 +18,15 @@ import type {
   ConversationPreview,
   BusMessage,
 } from "@/lib/types";
+import { fromTable, rawQuery } from "@/lib/db";
 
 /* ------------------------------------------------------------------ */
 /*  Database connection helper                                          */
 /* ------------------------------------------------------------------ */
 
-const DATABASE_URL = process.env.DATABASE_URL ?? "postgresql://openclaw:openclaw@localhost:5432/openclaw";
 const AGENT_SERVICE_TOKEN = process.env.AGENT_SERVICE_TOKEN ?? "";
 const AGENT_INTERNAL_HOST_TEMPLATE =
   process.env.AGENT_INTERNAL_HOST_TEMPLATE ?? "agent-{index1}";
-
-/**
- * Execute a SQL query against Postgres.
- * In production this would use pg or a pooler; here we shell out to psql
- * if pg is not installed, or use the pg module when available.
- *
- * For portability we attempt a dynamic import of 'pg'. If unavailable,
- * we return mock data so the UI remains functional.
- */
-async function query<T = Record<string, unknown>>(
-  sql: string,
-  params: unknown[] = [],
-): Promise<T[]> {
-  try {
-    /* Dynamic import — pg may or may not be installed */
-    const { default: pg } = await import("pg");
-    const client = new pg.Client({ connectionString: DATABASE_URL });
-    await client.connect();
-    try {
-      const result = await client.query(sql, params);
-      return result.rows as T[];
-    } finally {
-      await client.end();
-    }
-  } catch {
-    /* pg module not available or DB unreachable — return empty */
-    console.warn("[api/agents] Database unavailable, returning mock data");
-    return [];
-  }
-}
 
 /* ------------------------------------------------------------------ */
 /*  GET handler                                                         */
@@ -95,11 +65,11 @@ export async function POST(request: NextRequest) {
     switch (action) {
       case "restart_all": {
         /* Mark all agents as running (the docker-compose watcher handles actual restart) */
-        await query(
+        await rawQuery(
           `UPDATE public.agents SET status = 'running', updated_at = NOW()`,
         );
         /* Insert system bus event so agents pick it up */
-        await query(
+        await rawQuery(
           `INSERT INTO public.message_bus (channel, event_type, payload)
            VALUES ('system_bus', 'broadcast', $1::jsonb)`,
           [JSON.stringify({ action: "restart_all" })],
@@ -117,14 +87,14 @@ export async function POST(request: NextRequest) {
           );
         }
         const newStatus = action === "stop" ? "stopped" : "running";
-        await query(
+        await rawQuery(
           `UPDATE public.agents SET status = $1, updated_at = NOW() WHERE id = $2`,
           [newStatus, agent_id],
         );
         /* Broadcast the event on system_bus */
         const eventType =
           action === "stop" ? "agent_stopped" : "agent_started";
-        await query(
+        await rawQuery(
           `INSERT INTO public.message_bus (source_agent_id, channel, event_type, payload)
            VALUES ($1, 'system_bus', $2, $3::jsonb)`,
           [
@@ -138,10 +108,10 @@ export async function POST(request: NextRequest) {
 
       case "shutdown": {
         /* Stop all agents, broadcast shutdown */
-        await query(
+        await rawQuery(
           `UPDATE public.agents SET status = 'stopped', updated_at = NOW()`,
         );
-        await query(
+        await rawQuery(
           `INSERT INTO public.message_bus (channel, event_type, payload)
            VALUES ('system_bus', 'broadcast', $1::jsonb)`,
           [JSON.stringify({ action: "shutdown" })],
@@ -169,13 +139,11 @@ export async function POST(request: NextRequest) {
 /* ------------------------------------------------------------------ */
 
 async function listAgents(): Promise<NextResponse> {
-  /* Base agent rows */
-  const rows = await query<Agent>(
-    `SELECT id, name, schema_name, dashboard_port, gateway_port, agent_port,
-            status, created_at, updated_at
-     FROM public.agents
-     ORDER BY created_at ASC`,
-  );
+  /* Base agent rows via Supabase PostgREST */
+  const rows = await fromTable<Agent>("agents", {
+    select: "id,name,schema_name,dashboard_port,gateway_port,agent_port,status,created_at,updated_at",
+    order: { column: "created_at", ascending: true },
+  });
 
   /* If DB returned nothing, serve demo data so the UI is not blank */
   if (rows.length === 0) {
@@ -213,12 +181,10 @@ async function listAgents(): Promise<NextResponse> {
 /* ------------------------------------------------------------------ */
 
 async function getAgentDetail(agentId: string): Promise<NextResponse> {
-  const rows = await query<Agent>(
-    `SELECT id, name, schema_name, dashboard_port, gateway_port, agent_port,
-            status, created_at, updated_at
-     FROM public.agents WHERE id = $1`,
-    [agentId],
-  );
+  const rows = await fromTable<Agent>("agents", {
+    select: "id,name,schema_name,dashboard_port,gateway_port,agent_port,status,created_at,updated_at",
+    filters: [{ column: "id", op: "eq", value: agentId }],
+  });
 
   if (rows.length === 0) {
     /* Try mock data */
@@ -261,7 +227,7 @@ async function fetchAgentConfig(
   schema: string,
 ): Promise<AgentConfig | null> {
   try {
-    const rows = await query<AgentConfig>(
+    const rows = await rawQuery<AgentConfig>(
       `SELECT model_provider, auth_method, model, system_prompt, agent_name,
               temperature, max_tokens, prune_enabled, prune_after_days, prune_keep_starred,
               memory_enabled, memory_provider, memory_capture_mode,
@@ -279,7 +245,7 @@ async function fetchAgentChannels(
   schema: string,
 ): Promise<ChannelSummary[]> {
   try {
-    return await query<ChannelSummary>(
+    return await rawQuery<ChannelSummary>(
       `SELECT id, type, name, status FROM "${schema}".channels ORDER BY created_at ASC`,
     );
   } catch {
@@ -289,7 +255,7 @@ async function fetchAgentChannels(
 
 async function fetchMessageCount(schema: string): Promise<number> {
   try {
-    const rows = await query<{ count: string }>(
+    const rows = await rawQuery<{ count: string }>(
       `SELECT COUNT(*)::text AS count FROM "${schema}".messages
        WHERE created_at >= CURRENT_DATE`,
     );
@@ -306,7 +272,7 @@ async function fetchAgentAiConnected(
   if (!config) return false;
   try {
     if (config.auth_method === "oauth") {
-      const rows = await query<{ count: string }>(
+      const rows = await rawQuery<{ count: string }>(
         `SELECT COUNT(*)::text AS count
          FROM "${schema}".oauth_tokens
          WHERE provider = $1`,
@@ -315,7 +281,7 @@ async function fetchAgentAiConnected(
       return parseInt(rows[0]?.count ?? "0", 10) > 0;
     }
 
-    const rows = await query<{ count: string }>(
+    const rows = await rawQuery<{ count: string }>(
       `SELECT COUNT(*)::text AS count
        FROM "${schema}".api_keys
        WHERE provider = $1`,
@@ -329,7 +295,7 @@ async function fetchAgentAiConnected(
 
 async function buildSetupUrl(dashboardPort: number): Promise<string | null> {
   try {
-    const rows = await query<{ host: string | null }>(
+    const rows = await rawQuery<{ host: string | null }>(
       `SELECT COALESCE(NULLIF(tailscale_ip, ''), NULLIF(server_ip, '')) AS host
        FROM public.deploy_info
        ORDER BY created_at DESC
@@ -347,7 +313,7 @@ async function fetchRecentConversations(
   schema: string,
 ): Promise<ConversationPreview[]> {
   try {
-    return await query<ConversationPreview>(
+    return await rawQuery<ConversationPreview>(
       `SELECT id, title, participant_name, message_count, last_message_at, starred
        FROM "${schema}".conversations
        ORDER BY last_message_at DESC NULLS LAST
@@ -362,7 +328,7 @@ async function fetchAgentBusMessages(
   agentId: string,
 ): Promise<BusMessage[]> {
   try {
-    const rows = await query<BusMessage>(
+    const rows = await rawQuery<BusMessage>(
       `SELECT mb.id, mb.source_agent_id, mb.target_agent_id, mb.channel,
               mb.event_type, mb.payload, mb.status, mb.created_at,
               sa.name AS source_name, ta.name AS target_name

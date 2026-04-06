@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState, useMemo } from "react";
 import { useDashboardStore } from "@/lib/store";
 import type { BusFilters } from "@/lib/store";
+import { useRealtimeSync } from "@/lib/use-realtime";
 import {
   eventTypeLabel,
   formatTime,
   statusColor,
-  truncate,
 } from "@/lib/helpers";
 import type { BusMessage } from "@/lib/types";
 
@@ -38,30 +38,29 @@ export default function BusPage() {
 
   const [channelFilter, setChannelFilter] = useState<string>("all");
   const [eventFilter, setEventFilter] = useState<string>("all");
-  const [autoRefresh, setAutoRefresh] = useState(true);
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
-  /** Build filters object from state */
-  const buildFilters = useCallback((): BusFilters => {
-    const f: BusFilters = { limit: 100 };
-    if (channelFilter !== "all") f.channel = channelFilter;
-    if (eventFilter !== "all") f.event_type = eventFilter;
-    return f;
+  const busFilters = useMemo((): BusFilters => {
+    const filters: BusFilters = { limit: 100 };
+    if (channelFilter !== "all") filters.channel = channelFilter;
+    if (eventFilter !== "all") filters.event_type = eventFilter;
+    return filters;
   }, [channelFilter, eventFilter]);
 
-  /* Fetch on mount, re-fetch when filters change */
-  useEffect(() => {
-    fetchBusMessages(buildFilters());
-  }, [fetchBusMessages, buildFilters]);
+  /* Supabase Realtime — new bus messages arrive via subscription */
+  useRealtimeSync({ syncBus: true, busFilters });
 
-  /* Auto-refresh every 5 seconds */
-  useEffect(() => {
-    if (!autoRefresh) return;
-    const interval = setInterval(() => {
-      fetchBusMessages(buildFilters());
-    }, 5_000);
-    return () => clearInterval(interval);
-  }, [autoRefresh, fetchBusMessages, buildFilters]);
+  /* Client-side filter for Realtime messages that arrive unfiltered */
+  const filteredMessages = useMemo(() => {
+    let msgs = busMessages;
+    if (channelFilter !== "all") {
+      msgs = msgs.filter((m) => m.channel === channelFilter);
+    }
+    if (eventFilter !== "all") {
+      msgs = msgs.filter((m) => m.event_type === eventFilter);
+    }
+    return msgs;
+  }, [busMessages, channelFilter, eventFilter]);
 
   return (
     <div className="space-y-6">
@@ -73,15 +72,10 @@ export default function BusPage() {
             Live view of messages flowing between agents and the system.
           </p>
         </div>
-        <label className="flex items-center gap-2 text-sm text-gray-600">
-          <input
-            type="checkbox"
-            checked={autoRefresh}
-            onChange={(e) => setAutoRefresh(e.target.checked)}
-            className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
-          />
-          Auto-refresh
-        </label>
+        <span className="flex items-center gap-2 text-xs text-green-600">
+          <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+          Live
+        </span>
       </div>
 
       {/* ── Filter bar ── */}
@@ -127,19 +121,19 @@ export default function BusPage() {
         {/* Refresh button */}
         <button
           className="btn-secondary ml-auto"
-          onClick={() => fetchBusMessages(buildFilters())}
+          onClick={() => fetchBusMessages(busFilters)}
         >
           Refresh
         </button>
       </div>
 
       {/* ── Message log ── */}
-      {loadingBus && busMessages.length === 0 ? (
+      {loadingBus && filteredMessages.length === 0 ? (
         <div className="flex items-center justify-center py-20">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-brand-200 border-t-brand-600" />
           <span className="ml-3 text-sm text-gray-500">Loading messages...</span>
         </div>
-      ) : busMessages.length === 0 ? (
+      ) : filteredMessages.length === 0 ? (
         <div className="card flex flex-col items-center justify-center px-6 py-16 text-center">
           <h3 className="text-lg font-semibold text-gray-900">No messages</h3>
           <p className="mt-1 max-w-sm text-sm text-gray-500">
@@ -159,7 +153,7 @@ export default function BusPage() {
             <span className="col-span-2 text-right">Time</span>
           </div>
 
-          {busMessages.map((msg) => (
+          {filteredMessages.map((msg) => (
             <BusRow
               key={msg.id}
               msg={msg}
