@@ -48,7 +48,7 @@ const PROVIDER_META: Record<
     color: "#D4A574",
     icon: "Cl",
     description:
-      "Claude is made by Anthropic. When you connect your Claude account, your agent can use Claude models for thoughtful, nuanced conversations.",
+      "Claude is made by Anthropic. When you connect your Claude account, Aideploy routes Claude traffic through its local billing proxy so the agent can keep using Claude models on your plan.",
     hint: "Click the button to get a sign-in link. Open it in your browser, sign in with your Claude account, then come back here and paste what you see.",
     buttonLabel: "New Browser Link",
     steps: [

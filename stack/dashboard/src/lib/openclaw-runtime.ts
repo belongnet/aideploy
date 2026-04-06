@@ -98,6 +98,13 @@ export async function writeAuthProfiles(
       // best effort for source path
     }
   }
+
+  try {
+    const config = await readRawOpenClawConfig();
+    await writeOpenClawConfig(config);
+  } catch {
+    // Config sync is best effort when auth changes.
+  }
 }
 
 const RUNTIME_CONFIG = `${SECRETS_ROOT}/default/.openclaw/openclaw.json`;
@@ -107,6 +114,8 @@ const DEFAULT_MODELS: Record<string, string> = {
   openai: "openai-codex/gpt-5.3-codex",
   anthropic: "anthropic/claude-opus-4-6",
 };
+const ANTHROPIC_BILLING_PROXY_BASE_URL =
+  "http://anthropic-billing-proxy:18801";
 const DEFAULT_MEDIA_TOOL_CONFIG = {
   media: {
     concurrency: 2,
@@ -158,6 +167,96 @@ function inferModelProvider(model: string): string {
   const provider = raw.split("/", 1)[0]?.trim() ?? "";
   if (provider === "openai-codex") return "openai";
   return provider;
+}
+
+function normalizeAuthType(value: unknown): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function configUsesAnthropicBillingProxy(
+  config: Record<string, unknown>,
+): boolean {
+  const models = (config.models ?? {}) as Record<string, unknown>;
+  const providers = (models.providers ?? {}) as Record<string, unknown>;
+  const anthropic = (providers.anthropic ?? {}) as Record<string, unknown>;
+  return (
+    typeof anthropic.baseUrl === "string" &&
+    anthropic.baseUrl.trim() === ANTHROPIC_BILLING_PROXY_BASE_URL
+  );
+}
+
+function findAnthropicProfile(store: AuthProfileStore): AuthProfile | null {
+  const explicit = store.profiles["anthropic:default"];
+  if (explicit && typeof explicit === "object") return explicit;
+  for (const profile of Object.values(store.profiles)) {
+    if (
+      profile &&
+      typeof profile === "object" &&
+      normalizeAuthType(profile.provider) === "anthropic"
+    ) {
+      return profile;
+    }
+  }
+  return null;
+}
+
+function isAnthropicOauthProfile(profile: AuthProfile | null): boolean {
+  if (!profile) return false;
+  const authType = normalizeAuthType(profile.authType);
+  if (!["oauth", "consumer", "subscription_token", "token"].includes(authType)) {
+    return false;
+  }
+  return Boolean(profile.accessToken?.trim());
+}
+
+function isAnthropicApiKeyProfile(profile: AuthProfile | null): boolean {
+  if (!profile) return false;
+  const authType = normalizeAuthType(profile.authType);
+  if (authType === "api_key") return true;
+  return Boolean(profile.apiKey?.trim()) && !profile.accessToken?.trim();
+}
+
+function applyAnthropicBillingProxyConfig(
+  config: Record<string, unknown>,
+  store: AuthProfileStore,
+): Record<string, unknown> {
+  const next = { ...config };
+  const primaryModel = configuredPrimaryModelFromConfig(next);
+  let enableProxy = false;
+
+  if (inferModelProvider(primaryModel) === "anthropic") {
+    const profile = findAnthropicProfile(store);
+    if (isAnthropicApiKeyProfile(profile)) {
+      enableProxy = false;
+    } else if (isAnthropicOauthProfile(profile)) {
+      enableProxy = true;
+    } else {
+      enableProxy = configUsesAnthropicBillingProxy(next);
+    }
+  }
+
+  const models = { ...((next.models ?? {}) as Record<string, unknown>) };
+  const providers = { ...((models.providers ?? {}) as Record<string, unknown>) };
+  const anthropic = {
+    ...((providers.anthropic ?? {}) as Record<string, unknown>),
+  };
+
+  if (enableProxy) {
+    anthropic.baseUrl = ANTHROPIC_BILLING_PROXY_BASE_URL;
+    providers.anthropic = anthropic;
+  } else {
+    delete anthropic.baseUrl;
+    if (Object.keys(anthropic).length > 0) providers.anthropic = anthropic;
+    else delete providers.anthropic;
+  }
+
+  if (Object.keys(providers).length > 0) models.providers = providers;
+  else delete models.providers;
+
+  if (Object.keys(models).length > 0) next.models = models;
+  else delete next.models;
+
+  return next;
 }
 
 function normalizeManagedAudioModels(
@@ -286,7 +385,20 @@ export async function writeOpenClawConfig(
   config: Record<string, unknown>,
   telegramAllowFrom?: string[],
 ): Promise<void> {
-  const json = JSON.stringify(applyManagedCommandConfig(config, telegramAllowFrom), null, 2);
+  let authStore: AuthProfileStore = { version: 1, profiles: {} };
+  try {
+    authStore = await readRawAuthProfiles();
+  } catch {
+    // First-run installs may not have auth profiles yet.
+  }
+  const json = JSON.stringify(
+    applyManagedCommandConfig(
+      applyAnthropicBillingProxyConfig(config, authStore),
+      telegramAllowFrom,
+    ),
+    null,
+    2,
+  );
   for (const path of [RUNTIME_CONFIG, SOURCE_CONFIG]) {
     try {
       await mkdir(dirname(path), { recursive: true });
