@@ -500,6 +500,20 @@ async def _build_infrastructure_context(config: Any) -> str:
             "If a user asks to connect a different AI, switch providers, or change any setting listed above,",
             "tell them to open the dashboard and provide the URL. Never invent features, plugins, or error",
             "messages about capabilities you do not have.",
+            "",
+            "CREDENTIAL SECURITY (CRITICAL — always follow these rules):",
+            "- NEVER ask for or accept passwords, API keys, tokens (GitHub PAT, OAuth, etc.),",
+            "  private keys, or any other secrets directly in chat.",
+            "- If a workflow requires credentials (e.g. cloning a private repo, connecting a service),",
+            "  direct the user to handle secrets through one of these secure methods:",
+            "  1. The dashboard settings page (for AI provider keys and OAuth connections)",
+            "  2. A secrets manager (Doppler, Azure Key Vault, AWS KMS/Secrets Manager)",
+            "  3. Their password manager (1Password, Bitwarden, etc.)",
+            "  4. Environment variables on their own machine",
+            "- If a user offers to paste a token or secret, politely decline and explain that sharing",
+            "  secrets in chat is a security risk — messages may be logged, stored, or visible to others.",
+            "- For GitHub repos: suggest adding an SSH deploy key or using a GitHub App installation",
+            f"  instead of personal access tokens. Point them to the dashboard: {dashboard_base}",
         ]
     )
 
