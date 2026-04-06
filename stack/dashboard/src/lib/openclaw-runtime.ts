@@ -229,6 +229,21 @@ function isAnthropicApiKeyProfile(profile: AuthProfile | null): boolean {
   return Boolean(profile.apiKey?.trim()) && !profile.accessToken?.trim();
 }
 
+function normalizeAnthropicProviderModels(
+  value: unknown,
+): Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value
+        .filter(
+          (entry): entry is Record<string, unknown> =>
+            Boolean(entry) &&
+            typeof entry === "object" &&
+            !Array.isArray(entry),
+        )
+        .map((entry) => ({ ...entry }))
+    : [];
+}
+
 function applyAnthropicBillingProxyConfig(
   config: Record<string, unknown>,
   store: AuthProfileStore,
@@ -257,9 +272,13 @@ function applyAnthropicBillingProxyConfig(
 
   if (enableProxy && proxyBaseUrl) {
     anthropic.baseUrl = proxyBaseUrl;
+    anthropic.models = normalizeAnthropicProviderModels(anthropic.models);
     providers.anthropic = anthropic;
   } else {
     delete anthropic.baseUrl;
+    const normalizedModels = normalizeAnthropicProviderModels(anthropic.models);
+    if (normalizedModels.length > 0) anthropic.models = normalizedModels;
+    else delete anthropic.models;
     if (Object.keys(anthropic).length > 0) providers.anthropic = anthropic;
     else delete providers.anthropic;
   }
