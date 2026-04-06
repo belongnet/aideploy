@@ -1030,7 +1030,7 @@ class Database:
             FROM {self._t('memory_items')} mi
             JOIN {self._t('memory_embeddings')} me
               ON me.memory_id = mi.id
-            WHERE mi.user_key = $1
+            WHERE mi.user_key IN ($1, '__system__')
               AND mi.forgotten_at IS NULL
               AND 1 - (me.embedding <=> $2::vector) >= $3
             ORDER BY me.embedding <=> $2::vector ASC
