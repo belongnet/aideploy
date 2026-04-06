@@ -107,6 +107,24 @@ CHAT_CONNECT_DEFAULT_MODELS = {
     "openai": "gpt-5.3-codex",
     "anthropic": "claude-opus-4-6",
 }
+SETUP_COMMANDS = {
+    "connect chatgpt",
+    "connect claude",
+    "/start connectchatgpt",
+    "/start connectclaude",
+}
+ASSISTANT_SETUP_PHRASES = (
+    "open this link to sign in to chatgpt",
+    "paste the final redirect url back here",
+    "paste the localhost redirect url or code",
+    "paste the claude redirect url or one-time code",
+    "chatgpt is now connected.",
+    "claude is now connected.",
+    "no ai provider is connected yet.",
+    "reply one of these to get started:",
+    "here is the fastest chatgpt setup path:",
+    "here is the fastest claude setup path:",
+)
 
 
 # ── Lifespan ──────────────────────────────────────────────────
@@ -512,6 +530,37 @@ def _is_provider_switch_intent(text: str, current_provider: str) -> str | None:
     return None
 
 
+def _looks_like_localhost_redirect(text: str) -> bool:
+    normalized = text.strip().lower()
+    if not normalized:
+        return False
+    return bool(
+        re.match(r"^https?://(?:localhost|127\.0\.0\.1)[:/]", normalized)
+        and any(marker in normalized for marker in ("code=", "state=", "/auth/callback"))
+    )
+
+
+def _is_transient_setup_message(role: MessageRole, text: str) -> bool:
+    normalized = text.strip().lower()
+    if not normalized:
+        return False
+    if _looks_like_localhost_redirect(normalized):
+        return True
+    if role == MessageRole.USER:
+        return normalized in SETUP_COMMANDS
+    if role == MessageRole.ASSISTANT:
+        return any(phrase in normalized for phrase in ASSISTANT_SETUP_PHRASES)
+    return False
+
+
+def _filter_transient_setup_history(history: list[Message]) -> list[Message]:
+    return [
+        msg
+        for msg in history
+        if not _is_transient_setup_message(msg.role, msg.content)
+    ]
+
+
 async def _build_provider_switch_reply(target_provider: str, config: Any) -> str:
     """Build a response directing the user to the dashboard to switch providers."""
     setup_url = await _resolve_dashboard_setup_url()
@@ -604,6 +653,15 @@ async def process_message(incoming: IncomingMessage) -> str:
     8. Log analytics
     9. Return response text
     """
+    config = await db.get_config()
+
+    # Ignore stale localhost redirect URLs that can be replayed after setup finishes.
+    if _looks_like_localhost_redirect(incoming.text) and await _is_provider_connected(
+        config, config.model_provider.value
+    ):
+        logger.info("Ignoring stale setup redirect after provider connected")
+        return ""
+
     # Step 1: Find channel
     channels = await db.get_channels()
     channel = next(
@@ -630,7 +688,6 @@ async def process_message(incoming: IncomingMessage) -> str:
     if conv.message_count == 0:
         is_new = True
 
-    config = await db.get_config()
     user_key = resolve_user_key(
         incoming.metadata,
         incoming.channel_type.value,
@@ -736,7 +793,9 @@ async def process_message(incoming: IncomingMessage) -> str:
         response_text = setup_help_response
         tokens_used = 0
     else:
-        history = await db.get_messages(conv.id, limit=20)
+        history = _filter_transient_setup_history(
+            await db.get_messages(conv.id, limit=20)
+        )
         infra_context = await _build_infrastructure_context(config)
         full_system = config.system_prompt + "\n\n" + infra_context
         messages: list[dict[str, str]] = [
