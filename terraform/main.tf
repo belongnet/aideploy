@@ -33,9 +33,9 @@ terraform {
 locals {
   # DigitalOcean sizes
   do_sizes = {
-    starter = "s-1vcpu-2gb"
-    growing = "s-2vcpu-4gb"
-    power   = "s-4vcpu-8gb"
+    starter = "g-2vcpu-8gb"
+    growing = "g-4vcpu-16gb"
+    power   = "g-8vcpu-32gb"
   }
 
   # AWS sizes

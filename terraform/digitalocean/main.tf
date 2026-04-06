@@ -23,7 +23,7 @@ variable "region" {
 
 variable "size" {
   type    = string
-  default = "s-1vcpu-2gb"
+  default = "g-2vcpu-8gb"
 }
 
 variable "deploy_id" {
