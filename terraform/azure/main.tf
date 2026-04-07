@@ -59,11 +59,6 @@ variable "egress_ipv6_cidrs" {
   default = []
 }
 
-variable "enable_backup_storage" {
-  type    = bool
-  default = true
-}
-
 provider "azurerm" {
   features {}
   subscription_id            = var.subscription_id
@@ -212,14 +207,6 @@ resource "azurerm_linux_virtual_machine" "openclaw" {
 
   custom_data = base64encode(var.cloud_init)
 
-  dynamic "identity" {
-    for_each = var.enable_backup_storage ? [1] : []
-    content {
-      type         = "UserAssigned"
-      identity_ids = [azurerm_user_assigned_identity.backup[0].id]
-    }
-  }
-
   tags = {
     project   = "openclaw"
     deploy_id = var.deploy_id
@@ -230,67 +217,10 @@ resource "azurerm_linux_virtual_machine" "openclaw" {
   }
 }
 
-# ── Azure Blob Storage for off-cluster backups ────────────────
-
-resource "azurerm_storage_account" "backup" {
-  count                    = var.enable_backup_storage ? 1 : 0
-  name                     = substr("ocbkp${replace(var.deploy_id, "-", "")}", 0, 24)
-  resource_group_name      = azurerm_resource_group.openclaw.name
-  location                 = azurerm_resource_group.openclaw.location
-  account_tier             = "Standard"
-  account_replication_type = "GRS"
-  min_tls_version          = "TLS1_2"
-
-  blob_properties {
-    delete_retention_policy {
-      days = 30
-    }
-    container_delete_retention_policy {
-      days = 14
-    }
-  }
-
-  tags = {
-    project   = "openclaw"
-    deploy_id = var.deploy_id
-  }
-}
-
-resource "azurerm_storage_container" "backup" {
-  count                 = var.enable_backup_storage ? 1 : 0
-  name                  = "aideploy-backups"
-  storage_account_name  = azurerm_storage_account.backup[0].name
-  container_access_type = "private"
-}
-
-resource "azurerm_user_assigned_identity" "backup" {
-  count               = var.enable_backup_storage ? 1 : 0
-  name                = "openclaw-backup-${var.deploy_id}"
-  resource_group_name = azurerm_resource_group.openclaw.name
-  location            = azurerm_resource_group.openclaw.location
-}
-
-resource "azurerm_role_assignment" "backup_blob_contributor" {
-  count                = var.enable_backup_storage ? 1 : 0
-  scope                = azurerm_storage_account.backup[0].id
-  role_definition_name = "Storage Blob Data Contributor"
-  principal_id         = azurerm_user_assigned_identity.backup[0].principal_id
-}
-
-# ── Outputs ───────────────────────────────────────────────────
-
 output "server_ip" {
   value = azurerm_public_ip.openclaw.ip_address
 }
 
 output "server_id" {
   value = azurerm_linux_virtual_machine.openclaw.id
-}
-
-output "backup_storage_account" {
-  value = var.enable_backup_storage ? azurerm_storage_account.backup[0].name : ""
-}
-
-output "backup_container" {
-  value = var.enable_backup_storage ? azurerm_storage_container.backup[0].name : ""
 }
