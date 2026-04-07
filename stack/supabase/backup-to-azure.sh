@@ -15,14 +15,11 @@ if [ -f "$ENV_FILE" ]; then
   set +a
 fi
 
-# ── Required configuration ────────────────────────────────────
 : "${AZURE_BACKUP_STORAGE_ACCOUNT:?AZURE_BACKUP_STORAGE_ACCOUNT is required}"
 : "${AZURE_BACKUP_CONTAINER:?AZURE_BACKUP_CONTAINER is required}"
 
 DEPLOY_ID="${DEPLOY_ID:-local-dev}"
 INCLUDE_STORAGE="${SUPABASE_BACKUP_INCLUDE_STORAGE:-auto}"
-LOCAL_URL="${SUPABASE_URL:-http://127.0.0.1:8000}"
-LOCAL_PUBLIC_URL="${SUPABASE_PUBLIC_URL:-}"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 ARCHIVE_ROOT="${DEPLOY_ID}/${TIMESTAMP}"
 TMP_DIR="$(mktemp -d)"
@@ -37,8 +34,6 @@ if [ -z "${POSTGRES_PASSWORD:-}" ]; then
   exit 1
 fi
 
-# ── Auth mode detection ───────────────────────────────────────
-# Azure VMs expose IMDS; all other providers use a SAS token.
 AZURE_AUTH_MODE="${AZURE_BACKUP_AUTH_MODE:-auto}"
 if [ "$AZURE_AUTH_MODE" = "auto" ]; then
   if curl -fsS -H "Metadata: true" --connect-timeout 2 --max-time 3 \
@@ -67,12 +62,10 @@ else
   exit 1
 fi
 
-# ── Storage inclusion auto-detection ──────────────────────────
 if [ "$INCLUDE_STORAGE" = "auto" ]; then
   INCLUDE_STORAGE="true"
 fi
 
-# ── Upload helper ─────────────────────────────────────────────
 upload_to_azure() {
   local local_path="$1"
   local remote_name="$2"
@@ -92,7 +85,6 @@ upload_to_azure() {
 
 echo "[aideploy] Creating Azure backup at ${BLOB_BASE}/${ARCHIVE_ROOT}"
 
-# ── Database dump ─────────────────────────────────────────────
 DB_DUMP="$TMP_DIR/database.sql.gz"
 docker exec -e PGPASSWORD="$POSTGRES_PASSWORD" supabase-db \
   pg_dump -U postgres -d postgres --clean --if-exists --no-owner --no-privileges \
@@ -101,7 +93,6 @@ upload_to_azure "$DB_DUMP" "database.sql.gz"
 
 DB_DUMP_BYTES=$(stat -c%s "$DB_DUMP" 2>/dev/null || stat -f%z "$DB_DUMP" 2>/dev/null || echo 0)
 
-# ── Metadata ──────────────────────────────────────────────────
 METADATA="$TMP_DIR/metadata.json"
 cat > "$METADATA" <<EOF
 {
@@ -117,7 +108,6 @@ cat > "$METADATA" <<EOF
 EOF
 upload_to_azure "$METADATA" "metadata.json"
 
-# ── Optional storage volume archive ──────────────────────────
 if [ "$INCLUDE_STORAGE" = "true" ]; then
   STORAGE_ROOT="$TMP_DIR/storage-root"
   STORAGE_ARCHIVE="$TMP_DIR/storage.tar.gz"
