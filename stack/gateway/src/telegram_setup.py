@@ -385,11 +385,15 @@ class TelegramSetupManager:
             current_auth_method_before_flow=str(setup_status.get("currentAuthMethod") or ""),
             dashboard_session=snapshot,
         )
+        oauth_url = str(snapshot.get("url") or "")
         await self.dispatcher.send_telegram(
             chat_id,
             self._provider_prompt_text(provider, snapshot, setup_status),
             {"reply_to_message_id": reply_to_message_id} if reply_to_message_id else None,
-            reply_markup=self._provider_keyboard(str(setup_status.get("dashboardSetupUrl") or "")),
+            reply_markup=self._provider_keyboard(
+                str(setup_status.get("dashboardSetupUrl") or ""),
+                oauth_url=oauth_url,
+            ),
             disable_web_page_preview=True,
         )
         return True
@@ -729,6 +733,8 @@ class TelegramSetupManager:
 
         return (
             f"Connect {label} in your browser:\n{url}\n\n"
+            f"Tap \"Open Login\" below to open in your browser. "
+            f"On mobile, if login doesn\u2019t load, tap \u22ee \u2192 Open in Safari/Chrome.\n\n"
             f"{paste_help}\n\n"
             f"If you want another provider, open {setup_status.get('dashboardSetupUrl', '')}."
         )
@@ -770,10 +776,11 @@ class TelegramSetupManager:
             keyboard.append([{"text": "Open Dashboard", "url": setup_url}])
         return {"inline_keyboard": keyboard}
 
-    def _provider_keyboard(self, setup_url: str) -> dict[str, Any]:
-        keyboard: list[list[dict[str, Any]]] = [
-            [{"text": "Cancel", "callback_data": CANCEL_CALLBACK}]
-        ]
+    def _provider_keyboard(self, setup_url: str, oauth_url: str = "") -> dict[str, Any]:
+        keyboard: list[list[dict[str, Any]]] = []
+        if oauth_url:
+            keyboard.append([{"text": "Open Login \u2197", "url": oauth_url}])
+        keyboard.append([{"text": "Cancel", "callback_data": CANCEL_CALLBACK}])
         if setup_url:
             keyboard.append([{"text": "Open Dashboard", "url": setup_url}])
         return {"inline_keyboard": keyboard}
