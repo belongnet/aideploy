@@ -22,6 +22,7 @@ import {
 
 const HOME_ROOT = process.env.AIDEPLOY_HOME_ROOT || "/home/aideploy";
 const KMS_CONFIG_PATH = `${HOME_ROOT}/.openclaw/kms-credentials.json`;
+const LEGACY_SECRET_PROVIDERS_PATH = `${HOME_ROOT}/.aideploy/secret-providers.json`;
 
 async function readKmsConfig(): Promise<KmsConfig> {
   try {
@@ -38,6 +39,46 @@ async function writeKmsConfig(config: KmsConfig): Promise<void> {
     encoding: "utf-8",
     mode: 0o600,
   });
+}
+
+/**
+ * Mirror Doppler credentials to the legacy secret-providers.json so the
+ * materializer and old dashboard can find them.
+ */
+async function syncDopplerToLegacy(config: KmsConfig): Promise<void> {
+  const doppler = config.providers.doppler;
+
+  try {
+    let existing: Record<string, unknown> = {};
+    try {
+      const raw = await readFile(LEGACY_SECRET_PROVIDERS_PATH, "utf-8");
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") existing = parsed as Record<string, unknown>;
+    } catch {
+      // file doesn't exist yet — fine
+    }
+
+    const token = doppler?.DOPPLER_TOKEN?.trim() ?? "";
+    if (token) {
+      existing.doppler = {
+        token,
+        project: doppler?.DOPPLER_PROJECT ?? "",
+        config: doppler?.DOPPLER_CONFIG ?? "",
+        updatedAt: new Date().toISOString(),
+      };
+    } else {
+      delete existing.doppler;
+    }
+
+    await mkdir(dirname(LEGACY_SECRET_PROVIDERS_PATH), { recursive: true });
+    await writeFile(
+      LEGACY_SECRET_PROVIDERS_PATH,
+      JSON.stringify(existing, null, 2),
+      { encoding: "utf-8", mode: 0o600 },
+    );
+  } catch {
+    // Best-effort — don't block the save if legacy write fails
+  }
 }
 
 // Env var names each provider needs
@@ -199,6 +240,11 @@ export async function POST(request: Request) {
     config.providers[providerId] = { ...existing, ...sanitized };
     await writeKmsConfig(config);
 
+    // Mirror Doppler credentials to legacy path for materializer compatibility
+    if (providerId === "doppler") {
+      await syncDopplerToLegacy(config);
+    }
+
     // Apply to current process so resolvers work immediately
     applySavedKmsCredentialsToEnv(config);
 
@@ -231,6 +277,10 @@ export async function DELETE(request: Request) {
     const config = await readKmsConfig();
     delete config.providers[providerId];
     await writeKmsConfig(config);
+
+    if (providerId === "doppler") {
+      await syncDopplerToLegacy(config);
+    }
 
     // Restore environment-backed values while removing dashboard-saved ones.
     applySavedKmsCredentialsToEnv(config);
