@@ -135,6 +135,53 @@ export async function POST(request: NextRequest) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  PATCH handler — rename an agent                                     */
+/* ------------------------------------------------------------------ */
+
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { agent_id, name } = body as { agent_id: string; name?: unknown };
+    if (!agent_id) {
+      return NextResponse.json(
+        { error: "agent_id is required" },
+        { status: 400 },
+      );
+    }
+    if (name !== undefined) {
+      if (typeof name !== "string") {
+        return NextResponse.json(
+          { error: "name must be a string" },
+          { status: 400 },
+        );
+      }
+      const trimmedName = name.trim();
+      if (!trimmedName) {
+        return NextResponse.json(
+          { error: "name is required" },
+          { status: 400 },
+        );
+      }
+      await rawQuery(
+        `UPDATE public.agents SET name = $1, updated_at = NOW() WHERE id = $2`,
+        [trimmedName, agent_id],
+      );
+      return NextResponse.json({ ok: true, agent_id, name: trimmedName });
+    }
+    return NextResponse.json(
+      { error: "No fields to update" },
+      { status: 400 },
+    );
+  } catch (err) {
+    console.error("[api/agents] PATCH error:", err);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /*  List all agents                                                     */
 /* ------------------------------------------------------------------ */
 

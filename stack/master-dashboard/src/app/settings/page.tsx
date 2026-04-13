@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useDashboardStore } from "@/lib/store";
-import type { DeployInfo } from "@/lib/types";
 
 /* ------------------------------------------------------------------ */
 /*  Settings page                                                       */

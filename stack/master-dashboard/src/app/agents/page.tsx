@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
 import { useDashboardStore } from "@/lib/store";
 import { useRealtimeSync } from "@/lib/use-realtime";
@@ -34,6 +34,23 @@ export default function AgentsPage() {
         setTimeout(fetchAgents, 1500);
       } catch (err) {
         console.error(`Failed to ${action} agent ${agentId}:`, err);
+      }
+    },
+    [fetchAgents],
+  );
+
+  const renameAgentAction = useCallback(
+    async (agentId: string, newName: string) => {
+      try {
+        const res = await fetch("/api/agents", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agent_id: agentId, name: newName }),
+        });
+        if (!res.ok) throw new Error(`Rename failed (${res.status})`);
+        fetchAgents();
+      } catch (err) {
+        console.error(`Failed to rename agent ${agentId}:`, err);
       }
     },
     [fetchAgents],
@@ -90,6 +107,7 @@ export default function AgentsPage() {
                     key={agent.id}
                     agent={agent}
                     onAction={agentAction}
+                    onRename={renameAgentAction}
                   />
                 ))}
               </tbody>
@@ -103,6 +121,7 @@ export default function AgentsPage() {
                 key={agent.id}
                 agent={agent}
                 onAction={agentAction}
+                onRename={renameAgentAction}
               />
             ))}
           </div>
@@ -119,26 +138,69 @@ export default function AgentsPage() {
 function AgentRow({
   agent,
   onAction,
+  onRename,
 }: {
   agent: Agent;
   onAction: (id: string, action: "restart" | "stop" | "start") => void;
+  onRename: (id: string, name: string) => void;
 }) {
   const provider = agent.config?.model_provider ?? "openai";
   const model = agent.config?.model ?? "-";
   const channels = agent.channels ?? [];
   const isHealthy = agent.status === "running" && agent.healthy !== false;
   const needsAiSetup = agent.ai_connected === false;
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(agent.name);
 
   return (
     <tr className="hover:bg-gray-50 transition-colors">
       {/* Name + link */}
       <td className="px-5 py-3.5">
-        <Link
-          href={`/agents/${agent.id}`}
-          className="font-medium text-brand-600 hover:underline"
-        >
-          {agent.name}
-        </Link>
+        {editing ? (
+          <input
+            autoFocus
+            className="border border-gray-300 rounded px-2 py-1 text-sm w-40 focus:outline-none focus:ring-2 focus:ring-brand-500"
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && editName.trim()) {
+                onRename(agent.id, editName.trim());
+                setEditing(false);
+              }
+              if (e.key === "Escape") {
+                setEditName(agent.name);
+                setEditing(false);
+              }
+            }}
+            onBlur={() => {
+              if (editName.trim() && editName.trim() !== agent.name) {
+                onRename(agent.id, editName.trim());
+              }
+              setEditing(false);
+            }}
+          />
+        ) : (
+          <span className="flex items-center gap-1.5 group">
+            <Link
+              href={`/agents/${agent.id}`}
+              className="font-medium text-brand-600 hover:underline"
+            >
+              {agent.name}
+            </Link>
+            <button
+              className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-gray-600 transition-opacity"
+              onClick={() => {
+                setEditName(agent.name);
+                setEditing(true);
+              }}
+              title="Rename agent"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              </svg>
+            </button>
+          </span>
+        )}
       </td>
 
       {/* Status badge */}
@@ -247,26 +309,69 @@ function AgentRow({
 function AgentMobileCard({
   agent,
   onAction,
+  onRename,
 }: {
   agent: Agent;
   onAction: (id: string, action: "restart" | "stop" | "start") => void;
+  onRename: (id: string, name: string) => void;
 }) {
   const provider = agent.config?.model_provider ?? "openai";
   const model = agent.config?.model ?? "-";
   const channels = agent.channels ?? [];
   const isHealthy = agent.status === "running" && agent.healthy !== false;
   const needsAiSetup = agent.ai_connected === false;
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(agent.name);
 
   return (
     <div className="card p-4 space-y-3">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <Link
-          href={`/agents/${agent.id}`}
-          className="text-base font-semibold text-brand-600 hover:underline"
-        >
-          {agent.name}
-        </Link>
+        {editing ? (
+          <input
+            autoFocus
+            className="border border-gray-300 rounded px-2 py-1 text-sm w-40 focus:outline-none focus:ring-2 focus:ring-brand-500"
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && editName.trim()) {
+                onRename(agent.id, editName.trim());
+                setEditing(false);
+              }
+              if (e.key === "Escape") {
+                setEditName(agent.name);
+                setEditing(false);
+              }
+            }}
+            onBlur={() => {
+              if (editName.trim() && editName.trim() !== agent.name) {
+                onRename(agent.id, editName.trim());
+              }
+              setEditing(false);
+            }}
+          />
+        ) : (
+          <span className="flex items-center gap-1.5">
+            <Link
+              href={`/agents/${agent.id}`}
+              className="text-base font-semibold text-brand-600 hover:underline"
+            >
+              {agent.name}
+            </Link>
+            <button
+              className="text-gray-400 hover:text-gray-600"
+              onClick={() => {
+                setEditName(agent.name);
+                setEditing(true);
+              }}
+              title="Rename agent"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              </svg>
+            </button>
+          </span>
+        )}
         <span className="flex items-center gap-1.5">
           <span
             className={
