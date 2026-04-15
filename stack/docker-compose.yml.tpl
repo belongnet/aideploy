@@ -24,6 +24,7 @@ services:
       SUPABASE_PUBLIC_URL: "${SUPABASE_PUBLIC_URL:-http://localhost:8000}"
       SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:-}"
       SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-}"
+      AIDEPLOY_MAINTENANCE_TAILSCALE_POLICY: "${AIDEPLOY_MAINTENANCE_TAILSCALE_POLICY:-ssh-equivalent}"
     networks:
       - openclaw
       - supabase
@@ -106,6 +107,7 @@ services:
       SUPABASE_STORAGE_BUCKET: "${SUPABASE_STORAGE_BUCKET:-agent-files}"
       NEXT_PUBLIC_SUPABASE_URL: "${SUPABASE_PUBLIC_URL:-http://localhost:8000}"
       NEXT_PUBLIC_SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:-}"
+      AIDEPLOY_MAINTENANCE_TAILSCALE_POLICY: "${AIDEPLOY_MAINTENANCE_TAILSCALE_POLICY:-ssh-equivalent}"
     depends_on:
       - agent-{{this.index}}
     networks:

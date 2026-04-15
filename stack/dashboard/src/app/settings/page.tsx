@@ -9,6 +9,7 @@ import {
   clearData,
   exportData,
   shutDown,
+  runPatch,
 } from "@/lib/api";
 
 /* ------------------------------------------------------------------ */
@@ -56,6 +57,13 @@ export default function SettingsPage() {
   /* Prune now feedback */
   const [pruneResult, setPruneResult] = useState<number | null>(null);
   const [pruning, setPruning] = useState(false);
+
+  /* Maintenance patch */
+  const [patchScript, setPatchScript] = useState("");
+  const [patchOutput, setPatchOutput] = useState<string | null>(null);
+  const [patchOk, setPatchOk] = useState<boolean | null>(null);
+  const [patchRunning, setPatchRunning] = useState(false);
+  const [patchConfirm, setPatchConfirm] = useState(false);
 
   /* ---------------------------------------------------------------- */
   /*  Data loading                                                     */
@@ -120,6 +128,29 @@ export default function SettingsPage() {
       /* Silent fail */
     } finally {
       setPruning(false);
+    }
+  };
+
+  /* ---------------------------------------------------------------- */
+  /*  Maintenance patch                                                */
+  /* ---------------------------------------------------------------- */
+
+  const handleRunPatch = async () => {
+    setPatchRunning(true);
+    setPatchOutput(null);
+    setPatchOk(null);
+    setPatchConfirm(false);
+    try {
+      const result = await runPatch(patchScript);
+      setPatchOutput(result.output);
+      setPatchOk(result.ok);
+    } catch (err: unknown) {
+      setPatchOutput(
+        err instanceof Error ? err.message : "Failed to run patch",
+      );
+      setPatchOk(false);
+    } finally {
+      setPatchRunning(false);
     }
   };
 
@@ -377,6 +408,84 @@ export default function SettingsPage() {
           />
           <InfoRow label="Region" value={config.serverInfo.region} />
         </div>
+      </section>
+
+      {/* ============================================================ */}
+      {/*  Section: Maintenance                                         */}
+      {/* ============================================================ */}
+      <section className="card space-y-4">
+        <h2 className="section-title">Maintenance</h2>
+        <p className="text-sm text-gray-500">
+          If support gives you a fix to apply, paste it here and press Run.
+        </p>
+
+        <textarea
+          value={patchScript}
+          onChange={(e) => {
+            setPatchScript(e.target.value);
+            setPatchConfirm(false);
+            setPatchOutput(null);
+            setPatchOk(null);
+          }}
+          rows={6}
+          placeholder="Paste the maintenance script here..."
+          className="input-field resize-y font-mono text-xs"
+          spellCheck={false}
+        />
+
+        {!patchConfirm ? (
+          <button
+            onClick={() => setPatchConfirm(true)}
+            disabled={!patchScript.trim() || patchRunning}
+            className="inline-flex items-center justify-center rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-2.5 text-sm font-medium text-yellow-700 shadow-sm transition hover:bg-yellow-100 disabled:opacity-50 disabled:cursor-not-allowed min-h-touch"
+          >
+            Run Patch
+          </button>
+        ) : (
+          <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 space-y-3">
+            <p className="text-sm text-yellow-800">
+              This will run the script on your server. Only do this if support
+              asked you to.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={handleRunPatch}
+                disabled={patchRunning}
+                className="inline-flex items-center justify-center rounded-lg border border-yellow-300 bg-yellow-100 px-4 py-2.5 text-sm font-medium text-yellow-700 shadow-sm transition hover:bg-yellow-200 min-h-touch"
+              >
+                {patchRunning ? "Running..." : "Yes, run it"}
+              </button>
+              <button
+                onClick={() => setPatchConfirm(false)}
+                disabled={patchRunning}
+                className="btn-secondary text-sm"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {patchOutput !== null && (
+          <div
+            className={`rounded-lg border p-4 ${
+              patchOk
+                ? "border-green-200 bg-green-50"
+                : "border-red-200 bg-red-50"
+            }`}
+          >
+            <p
+              className={`text-xs font-medium mb-2 ${
+                patchOk ? "text-green-700" : "text-red-700"
+              }`}
+            >
+              {patchOk ? "Patch applied successfully" : "Patch failed"}
+            </p>
+            <pre className="text-xs text-gray-700 whitespace-pre-wrap break-words max-h-64 overflow-y-auto font-mono">
+              {patchOutput}
+            </pre>
+          </div>
+        )}
       </section>
 
       {/* ============================================================ */}

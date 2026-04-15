@@ -16,6 +16,13 @@ export default function SettingsPage() {
   const [showShutdownConfirm, setShowShutdownConfirm] = useState(false);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
 
+  /* Maintenance patch */
+  const [patchScript, setPatchScript] = useState("");
+  const [patchOutput, setPatchOutput] = useState<string | null>(null);
+  const [patchOk, setPatchOk] = useState<boolean | null>(null);
+  const [patchRunning, setPatchRunning] = useState(false);
+  const [patchConfirm, setPatchConfirm] = useState(false);
+
   useEffect(() => {
     fetchOverview();
     fetchAgents();
@@ -88,6 +95,30 @@ export default function SettingsPage() {
       setActionInProgress(null);
     }
   }, []);
+
+  const handleRunPatch = async () => {
+    setPatchRunning(true);
+    setPatchOutput(null);
+    setPatchOk(null);
+    setPatchConfirm(false);
+    try {
+      const res = await fetch("/api/maintenance/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ script: patchScript }),
+      });
+      const data = await res.json();
+      setPatchOutput(data.output ?? "(no output)");
+      setPatchOk(data.ok);
+    } catch (err: unknown) {
+      setPatchOutput(
+        err instanceof Error ? err.message : "Failed to run patch",
+      );
+      setPatchOk(false);
+    } finally {
+      setPatchRunning(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -223,6 +254,84 @@ export default function SettingsPage() {
               : "Export Configuration"}
           </button>
         </div>
+      </div>
+
+      {/* ── Maintenance ── */}
+      <div className="card p-5 space-y-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500">
+          Maintenance
+        </h2>
+        <p className="text-sm text-gray-600">
+          If support gives you a fix to apply, paste it here and press Run.
+        </p>
+
+        <textarea
+          value={patchScript}
+          onChange={(e) => {
+            setPatchScript(e.target.value);
+            setPatchConfirm(false);
+            setPatchOutput(null);
+            setPatchOk(null);
+          }}
+          rows={6}
+          placeholder="Paste the maintenance script here..."
+          className="w-full rounded-lg border border-gray-300 p-3 font-mono text-xs focus:border-brand-500 focus:ring-1 focus:ring-brand-500 resize-y"
+          spellCheck={false}
+        />
+
+        {!patchConfirm ? (
+          <button
+            onClick={() => setPatchConfirm(true)}
+            disabled={!patchScript.trim() || patchRunning}
+            className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Run Patch
+          </button>
+        ) : (
+          <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 space-y-3">
+            <p className="text-sm text-yellow-800">
+              This will run the script on your server. Only do this if support
+              asked you to.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={handleRunPatch}
+                disabled={patchRunning}
+                className="rounded-lg border border-yellow-300 bg-yellow-100 px-4 py-2 text-sm font-medium text-yellow-700 hover:bg-yellow-200"
+              >
+                {patchRunning ? "Running..." : "Yes, run it"}
+              </button>
+              <button
+                onClick={() => setPatchConfirm(false)}
+                disabled={patchRunning}
+                className="btn-secondary"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {patchOutput !== null && (
+          <div
+            className={`rounded-lg border p-4 ${
+              patchOk
+                ? "border-green-200 bg-green-50"
+                : "border-red-200 bg-red-50"
+            }`}
+          >
+            <p
+              className={`text-xs font-medium mb-2 ${
+                patchOk ? "text-green-700" : "text-red-700"
+              }`}
+            >
+              {patchOk ? "Patch applied successfully" : "Patch failed"}
+            </p>
+            <pre className="text-xs text-gray-700 whitespace-pre-wrap break-words max-h-64 overflow-y-auto font-mono">
+              {patchOutput}
+            </pre>
+          </div>
+        )}
       </div>
 
       {/* ── Danger zone ── */}

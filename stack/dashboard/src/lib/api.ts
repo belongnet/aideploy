@@ -261,6 +261,15 @@ export const exportData = () =>
 export const shutDown = () =>
   request<{ ok: boolean }>("/api/system/shutdown", { method: "POST" });
 
+export const runPatch = (script: string) =>
+  request<{ ok: boolean; output: string; exitCode?: number }>(
+    "/dashboard-api/maintenance/run",
+    {
+      method: "POST",
+      body: JSON.stringify({ script }),
+    },
+  );
+
 /* ------------------------------------------------------------------ */
 /*  First-run AI setup                                                 */
 /* ------------------------------------------------------------------ */
