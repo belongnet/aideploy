@@ -119,9 +119,16 @@ BEGIN
             knowledge_provider TEXT NOT NULL DEFAULT ''none''
                             CHECK (knowledge_provider IN (''none'', ''qmd'')),
             knowledge_collections TEXT[] NOT NULL DEFAULT ''{}'',
+            autonomous_mode BOOLEAN NOT NULL DEFAULT true,
             created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
+    ', p_schema_name);
+
+    -- Backfill for existing agent schemas that predate autonomous_mode.
+    EXECUTE format('
+        ALTER TABLE %I.agent_config
+            ADD COLUMN IF NOT EXISTS autonomous_mode BOOLEAN NOT NULL DEFAULT true
     ', p_schema_name);
 
     -- OAuth tokens (encrypted at rest)
@@ -275,14 +282,34 @@ BEGIN
             action_type     TEXT NOT NULL
                             CHECK (action_type IN (
                                 ''reply'', ''api_call'', ''agent_forward'',
-                                ''run_prompt'', ''notify''
+                                ''run_prompt'', ''notify'',
+                                ''file_write'', ''serve_website''
                             )),
             action_config   JSONB NOT NULL DEFAULT ''{}'',
+            auto_approve    BOOLEAN NOT NULL DEFAULT true,
             run_count       INT NOT NULL DEFAULT 0,
             last_run_at     TIMESTAMPTZ,
             created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
+    ', p_schema_name);
+
+    -- Backfill for existing agent schemas.
+    EXECUTE format('
+        ALTER TABLE %I.tasks
+            ADD COLUMN IF NOT EXISTS auto_approve BOOLEAN NOT NULL DEFAULT true
+    ', p_schema_name);
+    -- Widen action_type CHECK constraint for older schemas.
+    EXECUTE format('
+        ALTER TABLE %I.tasks DROP CONSTRAINT IF EXISTS tasks_action_type_check
+    ', p_schema_name);
+    EXECUTE format('
+        ALTER TABLE %I.tasks ADD CONSTRAINT tasks_action_type_check
+            CHECK (action_type IN (
+                ''reply'', ''api_call'', ''agent_forward'',
+                ''run_prompt'', ''notify'',
+                ''file_write'', ''serve_website''
+            ))
     ', p_schema_name);
 
     -- Analytics events

@@ -3,7 +3,9 @@
 import { useEffect, useState, useCallback } from "react";
 import {
   fetchConfig,
+  fetchAutonomy,
   updateConfig,
+  updateAutonomy,
   pruneNow,
   restartAgent,
   clearData,
@@ -22,6 +24,7 @@ interface Config {
   pruneEnabled: boolean;
   pruneAfterDays: number;
   pruneKeepStarred: boolean;
+  autonomousMode: boolean;
   serverInfo: {
     ip: string;
     tailscaleIp: string;
@@ -49,6 +52,7 @@ export default function SettingsPage() {
   const [pruneEnabled, setPruneEnabled] = useState(false);
   const [pruneAfterDays, setPruneAfterDays] = useState(90);
   const [pruneKeepStarred, setPruneKeepStarred] = useState(true);
+  const [autonomousMode, setAutonomousMode] = useState(true);
 
   /* Danger zone confirmation dialogs */
   const [confirmAction, setConfirmAction] = useState<string | null>(null);
@@ -72,13 +76,24 @@ export default function SettingsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchConfig();
-      setConfig(data as Config);
-      setName(data.name);
-      setPersonality(data.personality);
-      setPruneEnabled(data.pruneEnabled);
-      setPruneAfterDays(data.pruneAfterDays);
-      setPruneKeepStarred(data.pruneKeepStarred);
+      const [configResult, autonomyResult] = await Promise.allSettled([
+        fetchConfig(),
+        fetchAutonomy(),
+      ]);
+
+      if (configResult.status === "fulfilled") {
+        const data = configResult.value;
+        setConfig(data as Config);
+        setName(data.name);
+        setPersonality(data.personality);
+        setPruneEnabled(data.pruneEnabled);
+        setPruneAfterDays(data.pruneAfterDays);
+        setPruneKeepStarred(data.pruneKeepStarred);
+        setAutonomousMode(data.autonomousMode);
+      }
+      if (autonomyResult.status === "fulfilled") {
+        setAutonomousMode(autonomyResult.value.autonomousMode);
+      }
     } catch {
       /* Silent fail */
     } finally {
@@ -98,13 +113,17 @@ export default function SettingsPage() {
     setSaving(true);
     setSaved(false);
     try {
-      await updateConfig({
-        name,
-        personality,
-        pruneEnabled,
-        pruneAfterDays,
-        pruneKeepStarred,
-      });
+      await Promise.all([
+        updateConfig({
+          name,
+          personality,
+          pruneEnabled,
+          pruneAfterDays,
+          pruneKeepStarred,
+          autonomousMode,
+        }),
+        updateAutonomy(autonomousMode),
+      ]);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch {
@@ -280,6 +299,44 @@ export default function SettingsPage() {
           <p className="mt-1 text-xs text-gray-400">
             Tell your agent how to talk and what kind of personality to have.
           </p>
+        </div>
+      </section>
+
+      {/* ============================================================ */}
+      {/*  Section: Automation                                          */}
+      {/* ============================================================ */}
+      <section className="card space-y-4">
+        <h2 className="section-title">Automation</h2>
+        <p className="text-sm text-gray-500">
+          Controls whether scheduled and recurring tasks can run on their own.
+        </p>
+
+        <div className="flex items-center justify-between">
+          <div className="pr-4">
+            <p className="text-sm font-medium text-gray-700">
+              Let scheduled tasks run without asking
+            </p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              When on, your agent can save data, upload files, and call other
+              services on schedule — no &ldquo;Allow once&rdquo; prompts.
+              Turn off if you want to approve every action manually.
+            </p>
+          </div>
+          <button
+            onClick={() => setAutonomousMode(!autonomousMode)}
+            className={`toggle-track ${
+              autonomousMode ? "bg-brand-600" : "bg-gray-200"
+            }`}
+            role="switch"
+            aria-checked={autonomousMode}
+            aria-label="Toggle autonomous mode"
+          >
+            <span
+              className={`toggle-knob ${
+                autonomousMode ? "translate-x-5" : "translate-x-0"
+              }`}
+            />
+          </button>
         </div>
       </section>
 

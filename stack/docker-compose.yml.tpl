@@ -35,10 +35,13 @@ services:
     build: ./agent
     container_name: openclaw-agent-{{this.index}}
     restart: unless-stopped
+    ports:
+      - "{{this.agent_port}}:{{this.agent_port}}"
     environment:
       AGENT_INDEX: "{{this.index}}"
       AGENT_SCHEMA: "{{this.schema_name}}"
       AGENT_PORT: "{{this.agent_port}}"
+      AGENT_WORKSPACE_DIR: "/workspace"
       DATABASE_URL: "postgresql://postgres:${DB_PASSWORD:?DB_PASSWORD is required}@${DB_HOST:-supabase-db}:${DB_PORT:-5432}/postgres"
       DB_PASSWORD: "${DB_PASSWORD:?DB_PASSWORD is required}"
       ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
@@ -49,6 +52,8 @@ services:
       SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:-}"
       SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-}"
       SUPABASE_JWT_SECRET: "${SUPABASE_JWT_SECRET:-}"
+    volumes:
+      - agent-workspace-{{this.index}}:/workspace
     networks:
       - openclaw
       - supabase
@@ -121,3 +126,8 @@ networks:
   supabase:
     external: true
     name: supabase_default
+
+volumes:
+  {{#each agents}}
+  agent-workspace-{{this.index}}:
+  {{/each}}

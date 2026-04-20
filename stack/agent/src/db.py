@@ -81,7 +81,31 @@ class Database:
                 ADD COLUMN IF NOT EXISTS memory_recall_top_k INT NOT NULL DEFAULT 5,
                 ADD COLUMN IF NOT EXISTS memory_similarity_threshold REAL NOT NULL DEFAULT 0.25,
                 ADD COLUMN IF NOT EXISTS knowledge_provider TEXT NOT NULL DEFAULT 'none',
-                ADD COLUMN IF NOT EXISTS knowledge_collections TEXT[] NOT NULL DEFAULT '{{}}'
+                ADD COLUMN IF NOT EXISTS knowledge_collections TEXT[] NOT NULL DEFAULT '{{}}',
+                ADD COLUMN IF NOT EXISTS autonomous_mode BOOLEAN NOT NULL DEFAULT true
+            """
+        )
+        await self.pool.execute(
+            f"""
+            ALTER TABLE {self._t('tasks')}
+                ADD COLUMN IF NOT EXISTS auto_approve BOOLEAN NOT NULL DEFAULT true
+            """
+        )
+        await self.pool.execute(
+            f"""
+            ALTER TABLE {self._t('tasks')}
+                DROP CONSTRAINT IF EXISTS tasks_action_type_check
+            """
+        )
+        await self.pool.execute(
+            f"""
+            ALTER TABLE {self._t('tasks')}
+                ADD CONSTRAINT tasks_action_type_check
+                CHECK (action_type IN (
+                    'reply', 'api_call', 'agent_forward',
+                    'run_prompt', 'notify',
+                    'file_write', 'serve_website'
+                ))
             """
         )
         await self.pool.execute(
@@ -808,8 +832,8 @@ class Database:
             f"""
             INSERT INTO {self._t('tasks')}
                 (id, name, description, enabled, trigger_type, trigger_config,
-                 action_type, action_config)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                 action_type, action_config, auto_approve)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             """,
             task.id,
             task.name,
@@ -819,6 +843,7 @@ class Database:
             json.dumps(task.trigger_config),
             task.action_type.value,
             json.dumps(task.action_config),
+            task.auto_approve,
         )
         return task
 

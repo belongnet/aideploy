@@ -219,31 +219,127 @@ export const fetchAiUsage = () =>
 /*  Settings                                                           */
 /* ------------------------------------------------------------------ */
 
-export const fetchConfig = () =>
-  request<{
-    name: string;
-    personality: string;
-    modelProvider: string;
-    model: string;
-    authMethod: string;
-    connectedAs: string | null;
-    pruneEnabled: boolean;
-    pruneAfterDays: number;
-    pruneKeepStarred: boolean;
+export interface DashboardConfig {
+  name: string;
+  personality: string;
+  modelProvider: string;
+  model: string;
+  authMethod: string;
+  connectedAs: string | null;
+  pruneEnabled: boolean;
+  pruneAfterDays: number;
+  pruneKeepStarred: boolean;
+  autonomousMode: boolean;
+  serverInfo: {
+    ip: string;
+    tailscaleIp: string;
+    provider: string;
+    region: string;
+  };
+}
+
+function stringValue(value: unknown, fallback = ""): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+function booleanValue(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function numberValue(value: unknown, fallback: number): number {
+  return typeof value === "number" ? value : fallback;
+}
+
+function normalizeConfig(raw: Record<string, unknown>): DashboardConfig {
+  const serverInfo =
+    raw.serverInfo && typeof raw.serverInfo === "object"
+      ? (raw.serverInfo as Record<string, unknown>)
+      : {};
+
+  return {
+    name: stringValue(raw.name ?? raw.agent_name, "My Agent"),
+    personality: stringValue(raw.personality ?? raw.system_prompt),
+    modelProvider: stringValue(raw.modelProvider ?? raw.model_provider, "openai"),
+    model: stringValue(raw.model),
+    authMethod: stringValue(raw.authMethod ?? raw.auth_method, "oauth"),
+    connectedAs:
+      typeof (raw.connectedAs ?? raw.connected_as) === "string"
+        ? ((raw.connectedAs ?? raw.connected_as) as string)
+        : null,
+    pruneEnabled: booleanValue(raw.pruneEnabled ?? raw.prune_enabled, true),
+    pruneAfterDays: numberValue(raw.pruneAfterDays ?? raw.prune_after_days, 90),
+    pruneKeepStarred: booleanValue(
+      raw.pruneKeepStarred ?? raw.prune_keep_starred,
+      true,
+    ),
+    autonomousMode: booleanValue(
+      raw.autonomousMode ?? raw.autonomous_mode,
+      true,
+    ),
     serverInfo: {
-      ip: string;
-      tailscaleIp: string;
-      provider: string;
-      region: string;
-    };
-  }>("/api/config");
+      ip: stringValue(serverInfo.ip),
+      tailscaleIp: stringValue(serverInfo.tailscaleIp ?? serverInfo.tailscale_ip),
+      provider: stringValue(serverInfo.provider),
+      region: stringValue(serverInfo.region),
+    },
+  };
+}
+
+function normalizeConfigUpdate(
+  updates: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(updates)) {
+    switch (key) {
+      case "name":
+        out.agent_name = value;
+        break;
+      case "personality":
+        out.system_prompt = value;
+        break;
+      case "modelProvider":
+        out.model_provider = value;
+        break;
+      case "authMethod":
+        out.auth_method = value;
+        break;
+      case "pruneEnabled":
+        out.prune_enabled = value;
+        break;
+      case "pruneAfterDays":
+        out.prune_after_days = value;
+        break;
+      case "pruneKeepStarred":
+        out.prune_keep_starred = value;
+        break;
+      case "autonomousMode":
+        out.autonomous_mode = value;
+        break;
+      default:
+        out[key] = value;
+    }
+  }
+  return out;
+}
+
+export const fetchConfig = async () =>
+  normalizeConfig(await request<Record<string, unknown>>("/api/config"));
 
 export const updateConfig = (
   updates: Record<string, unknown>
 ) =>
   request<{ ok: boolean }>("/api/config", {
+    method: "PUT",
+    body: JSON.stringify(normalizeConfigUpdate(updates)),
+  });
+
+export const fetchAutonomy = () =>
+  request<{ autonomousMode: boolean }>("/dashboard-api/autonomy");
+
+export const updateAutonomy = (autonomousMode: boolean) =>
+  request<{ ok: boolean; autonomousMode: boolean }>("/dashboard-api/autonomy", {
     method: "PATCH",
-    body: JSON.stringify(updates),
+    body: JSON.stringify({ autonomousMode }),
   });
 
 export const pruneNow = () =>

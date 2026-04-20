@@ -1,14 +1,17 @@
 """
 OpenClaw Agent — Task Executor.
 
-Executes task actions: reply, api_call, agent_forward, run_prompt, notify.
+Executes task actions: reply, api_call, agent_forward, run_prompt, notify,
+file_write, serve_website.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import uuid
+from pathlib import Path
 from typing import Any, Optional
 
 import httpx
@@ -19,6 +22,26 @@ from .llm_client import LLMAdapter
 from .models import ActionType, BusChannel, BusEventType, Task
 
 logger = logging.getLogger(__name__)
+
+WORKSPACE_DIR = Path(os.environ.get("AGENT_WORKSPACE_DIR", "/workspace")).resolve()
+SITES_DIR = WORKSPACE_DIR / "sites"
+
+
+def _resolve_site_path(site: str, rel_path: str) -> Path:
+    """Resolve a file path inside SITES_DIR, rejecting path traversal."""
+    if not site or "/" in site or site.startswith("."):
+        raise ValueError(f"invalid site name: {site!r}")
+    if not rel_path:
+        raise ValueError("path is required")
+    site_root = (SITES_DIR / site).resolve()
+    target = (site_root / rel_path).resolve()
+    try:
+        target.relative_to(site_root)
+    except ValueError as exc:
+        raise ValueError(
+            f"path {rel_path!r} escapes site root"
+        ) from exc
+    return target
 
 
 class TaskExecutor:
@@ -54,6 +77,10 @@ class TaskExecutor:
                 return await self._execute_run_prompt(task, context)
             case ActionType.NOTIFY:
                 return await self._execute_notify(task, context)
+            case ActionType.FILE_WRITE:
+                return await self._execute_file_write(task, context)
+            case ActionType.SERVE_WEBSITE:
+                return await self._execute_serve_website(task, context)
             case _:
                 raise ValueError(f"Unknown action type: {task.action_type}")
 
@@ -223,6 +250,51 @@ class TaskExecutor:
             "action": "notify",
             "channel_id": channel_id,
             "message": message,
+        }
+
+    async def _execute_file_write(
+        self, task: Task, context: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Write a file into /workspace/sites/{site}/{path} for agent-built portals."""
+        site = self._interpolate(task.action_config.get("site", ""), context).strip()
+        rel_path = self._interpolate(
+            task.action_config.get("path", ""), context
+        ).strip()
+        content_template = task.action_config.get("content", "")
+        content = self._interpolate(content_template, context)
+
+        target = _resolve_site_path(site, rel_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+
+        return {
+            "action": "file_write",
+            "site": site,
+            "path": rel_path,
+            "bytes": len(content.encode("utf-8")),
+        }
+
+    async def _execute_serve_website(
+        self, task: Task, context: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Confirm a site is live. Static serving is handled by FastAPI mount;
+        this action verifies an index.html exists and returns the public URL."""
+        site = self._interpolate(task.action_config.get("site", ""), context).strip()
+        if not site:
+            raise ValueError("serve_website requires site")
+
+        index = _resolve_site_path(site, "index.html")
+        if not index.exists():
+            raise FileNotFoundError(
+                f"site '{site}' has no index.html at {index}"
+            )
+
+        public_base = task.action_config.get("public_base_url", "").rstrip("/")
+        url = f"{public_base}/sites/{site}/" if public_base else f"/sites/{site}/"
+        return {
+            "action": "serve_website",
+            "site": site,
+            "url": url,
         }
 
     def _interpolate(self, template: str, context: dict[str, Any]) -> str:

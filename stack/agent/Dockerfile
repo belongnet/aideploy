@@ -17,9 +17,15 @@ COPY --from=builder /install /usr/local
 # Copy application code
 COPY src/ ./src/
 
+# Writable workspace for agent-built portals (mounted as a volume in compose).
+RUN mkdir -p /workspace/sites
+
 # Non-root user
-RUN useradd -m -r openclaw && chown -R openclaw:openclaw /app
+RUN useradd -m -r openclaw \
+    && chown -R openclaw:openclaw /app /workspace
 USER openclaw
+
+ENV AGENT_WORKSPACE_DIR=/workspace
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1

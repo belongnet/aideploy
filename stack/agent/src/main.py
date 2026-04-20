@@ -26,6 +26,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from .auth import authenticate_request, parse_allowed_origins
 from .bus_client import BusClient
@@ -78,6 +79,8 @@ logger = logging.getLogger("openclaw.agent")
 AGENT_INDEX = int(os.environ.get("AGENT_INDEX", "0"))
 AGENT_SCHEMA = os.environ.get("AGENT_SCHEMA", f"agent_{AGENT_INDEX + 1}")
 AGENT_PORT = int(os.environ.get("AGENT_PORT", str(8101 + AGENT_INDEX)))
+AGENT_WORKSPACE_DIR = os.environ.get("AGENT_WORKSPACE_DIR", "/workspace")
+AGENT_SITES_DIR = os.path.join(AGENT_WORKSPACE_DIR, "sites")
 DB_DSN = os.environ.get(
     "DATABASE_URL",
     f"postgresql://postgres:{os.environ.get('DB_PASSWORD', 'openclaw')}@{os.environ.get('DB_HOST', 'supabase-db')}:{os.environ.get('DB_PORT', '5432')}/postgres",
@@ -224,6 +227,10 @@ async def require_agent_auth(request: Request, call_next):
     path = request.url.path
     if request.method == "OPTIONS" or path == "/health":
         return await call_next(request)
+    # /sites/** is intentionally public: it serves agent-built portals and
+    # landing pages that need to work for anonymous visitors.
+    if path.startswith("/sites/") or path == "/sites":
+        return await call_next(request)
     if path == "/message" or path.startswith("/api/"):
         authorized, reason = authenticate_request(request)
         if not authorized:
@@ -232,6 +239,18 @@ async def require_agent_auth(request: Request, call_next):
                 content={"detail": reason},
             )
     return await call_next(request)
+
+
+# ── Static portals served from the agent's workspace volume ──
+try:
+    os.makedirs(AGENT_SITES_DIR, exist_ok=True)
+except OSError as exc:
+    logger.warning("Could not create sites dir %s: %s", AGENT_SITES_DIR, exc)
+app.mount(
+    "/sites",
+    StaticFiles(directory=AGENT_SITES_DIR, html=True, check_dir=False),
+    name="agent-sites",
+)
 
 
 # ── Message Processing Pipeline ──────────────────────────────
@@ -1334,8 +1353,8 @@ Return a JSON object with these fields:
 - description: what it does
 - trigger_type: one of keyword, schedule, agent_message, webhook, conversation_start, manual
 - trigger_config: configuration for the trigger
-- action_type: one of reply, api_call, agent_forward, run_prompt, notify
-- action_config: configuration for the action
+- action_type: one of reply, api_call, agent_forward, run_prompt, notify, file_write, serve_website
+- action_config: configuration for the action. For file_write use site, path, and content. For serve_website use site and optional public_base_url.
 
 Return ONLY valid JSON, no explanation."""
 

@@ -135,7 +135,15 @@ const DEFAULT_EXEC_CONFIG = {
   security: "full",
   ask: "off",
 } as const;
+const MANUAL_EXEC_ASK = "always";
 const DEFAULT_ELEVATED_DEFAULT = "full";
+const DEFAULT_AUTONOMY_ENABLED = true;
+
+function isAutonomyEnabled(config: Record<string, unknown>): boolean {
+  const autonomy = (config.autonomy ?? {}) as Record<string, unknown>;
+  if (typeof autonomy.enabled === "boolean") return autonomy.enabled;
+  return DEFAULT_AUTONOMY_ENABLED;
+}
 const DEFAULT_OPENAI_AUDIO_TRANSCRIPTION_MODEL = {
   provider: "openai",
   model: "gpt-4o-mini-transcribe",
@@ -328,9 +336,17 @@ function applyManagedCommandConfig(
   telegramAllowFrom?: string[],
 ): Record<string, unknown> {
   const next = { ...config };
+  const autonomyEnabled = isAutonomyEnabled(next);
+  const autonomy = {
+    ...((next.autonomy ?? {}) as Record<string, unknown>),
+    enabled: autonomyEnabled,
+  };
+  next.autonomy = autonomy;
   const agents = ((next.agents ?? {}) as Record<string, unknown>);
   const defaults = ((agents.defaults ?? {}) as Record<string, unknown>);
-  if (typeof defaults.elevatedDefault !== "string" || !defaults.elevatedDefault.trim()) {
+  if (autonomyEnabled) {
+    defaults.elevatedDefault = DEFAULT_ELEVATED_DEFAULT;
+  } else if (typeof defaults.elevatedDefault !== "string" || !defaults.elevatedDefault.trim()) {
     defaults.elevatedDefault = DEFAULT_ELEVATED_DEFAULT;
   }
 
@@ -363,13 +379,19 @@ function applyManagedCommandConfig(
   if (typeof execConfig.security !== "string" || !execConfig.security.trim()) {
     execConfig.security = DEFAULT_EXEC_CONFIG.security;
   }
-  if (typeof execConfig.ask !== "string" || !execConfig.ask.trim()) {
+  if (autonomyEnabled) {
+    // Pin to "off" so cron-triggered actions (lead mining, DB inserts, 3rd-party
+    // uploads) never stall waiting for a human to click "allow once".
     execConfig.ask = DEFAULT_EXEC_CONFIG.ask;
+  } else {
+    execConfig.ask = MANUAL_EXEC_ASK;
   }
 
   const elevated = ((tools.elevated ?? {}) as Record<string, unknown>);
-  if (typeof elevated.enabled !== "boolean") {
+  if (autonomyEnabled) {
     elevated.enabled = true;
+  } else {
+    elevated.enabled = false;
   }
   const allowFromRaw = elevated.allowFrom;
   const allowFrom =
@@ -440,6 +462,21 @@ export async function writeOpenClawConfig(
       // best effort for source path
     }
   }
+}
+
+export async function readAutonomyEnabled(): Promise<boolean> {
+  const config = await readRawOpenClawConfig();
+  return isAutonomyEnabled(config);
+}
+
+export async function writeAutonomyEnabled(enabled: boolean): Promise<void> {
+  const config = await readRawOpenClawConfig();
+  const autonomy =
+    config.autonomy && typeof config.autonomy === "object" && !Array.isArray(config.autonomy)
+      ? { ...(config.autonomy as Record<string, unknown>) }
+      : {};
+  autonomy.enabled = enabled;
+  await writeOpenClawConfig({ ...config, autonomy });
 }
 
 /**

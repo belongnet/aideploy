@@ -18,6 +18,8 @@ Action types:
   - agent_forward: forward to another agent via bus
   - run_prompt: run a specific prompt through the LLM
   - notify: send a notification via channel
+  - file_write: write a site file in the agent workspace
+  - serve_website: return the public URL for a workspace site
 """
 
 from __future__ import annotations
