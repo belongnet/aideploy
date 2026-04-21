@@ -22,6 +22,10 @@ interface Task {
   enabled: boolean;
   lastRun: string | null;
   runCount: number;
+  consecutive_errors?: number;
+  last_error?: string | null;
+  auto_disabled_at?: string | null;
+  auto_disabled_reason?: string | null;
 }
 
 /* Trigger and action options for the visual builder */
@@ -209,6 +213,15 @@ export default function TasksPage() {
   };
 
   /* ---------------------------------------------------------------- */
+  /*  Health summary                                                   */
+  /* ---------------------------------------------------------------- */
+
+  const autoDisabledCount = tasks.filter((t) => t.auto_disabled_at).length;
+  const erroringCount = tasks.filter(
+    (t) => !t.auto_disabled_at && (t.consecutive_errors ?? 0) > 0,
+  ).length;
+
+  /* ---------------------------------------------------------------- */
   /*  Render                                                           */
   /* ---------------------------------------------------------------- */
 
@@ -237,6 +250,33 @@ export default function TasksPage() {
           Create Task
         </button>
       </div>
+
+      {/* -------------------------------------------------------------- */}
+      {/*  Health summary                                                 */}
+      {/* -------------------------------------------------------------- */}
+      {(autoDisabledCount > 0 || erroringCount > 0) && (
+        <div className="card flex flex-col gap-2 border-l-4 border-amber-400 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-gray-900">
+              Task health needs attention
+            </h2>
+            <p className="mt-0.5 text-xs text-gray-500">
+              {autoDisabledCount > 0 && (
+                <>
+                  {autoDisabledCount} auto-paused after repeated failures.
+                  {erroringCount > 0 && " "}
+                </>
+              )}
+              {erroringCount > 0 && (
+                <>
+                  {erroringCount} recently erroring.
+                </>
+              )}{" "}
+              Check individual tasks below for the last error message.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* -------------------------------------------------------------- */}
       {/*  Create task panel (slide-in)                                   */}
@@ -519,7 +559,7 @@ export default function TasksPage() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 {/* Task info */}
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="text-sm font-semibold text-gray-900">
                       {task.name}
                     </h3>
@@ -532,10 +572,33 @@ export default function TasksPage() {
                     >
                       {task.enabled ? "Active" : "Off"}
                     </span>
+                    {task.auto_disabled_at && (
+                      <span
+                        className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700"
+                        title={task.auto_disabled_reason ?? ""}
+                      >
+                        Auto-paused
+                      </span>
+                    )}
+                    {!task.auto_disabled_at &&
+                      (task.consecutive_errors ?? 0) > 0 && (
+                        <span
+                          className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700"
+                          title={task.last_error ?? ""}
+                        >
+                          {task.consecutive_errors} recent{" "}
+                          {task.consecutive_errors === 1 ? "error" : "errors"}
+                        </span>
+                      )}
                   </div>
                   <p className="mt-0.5 text-xs text-gray-500">
                     {task.description}
                   </p>
+                  {task.auto_disabled_reason && (
+                    <p className="mt-1 text-[11px] text-red-600">
+                      {task.auto_disabled_reason}
+                    </p>
+                  )}
 
                   {/* Trigger/action badges */}
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">

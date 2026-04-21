@@ -88,7 +88,12 @@ class Database:
         await self.pool.execute(
             f"""
             ALTER TABLE {self._t('tasks')}
-                ADD COLUMN IF NOT EXISTS auto_approve BOOLEAN NOT NULL DEFAULT true
+                ADD COLUMN IF NOT EXISTS auto_approve BOOLEAN NOT NULL DEFAULT true,
+                ADD COLUMN IF NOT EXISTS consecutive_errors INT NOT NULL DEFAULT 0,
+                ADD COLUMN IF NOT EXISTS last_error TEXT,
+                ADD COLUMN IF NOT EXISTS auto_disable_threshold INT NOT NULL DEFAULT 5,
+                ADD COLUMN IF NOT EXISTS auto_disabled_at TIMESTAMPTZ,
+                ADD COLUMN IF NOT EXISTS auto_disabled_reason TEXT
             """
         )
         await self.pool.execute(
@@ -872,10 +877,52 @@ class Database:
             UPDATE {self._t('tasks')} SET
                 run_count = run_count + 1,
                 last_run_at = NOW(),
+                consecutive_errors = 0,
+                last_error = NULL,
                 updated_at = NOW()
             WHERE id = $1
             """,
             task_id,
+        )
+
+    async def record_task_failure(
+        self, task_id: uuid.UUID, error: str
+    ) -> Optional[Task]:
+        """Increment consecutive_errors and return the updated task.
+
+        Auto-disable is left to the caller so it can emit a single
+        notification when the threshold flips.
+        """
+        row = await self.pool.fetchrow(
+            f"""
+            UPDATE {self._t('tasks')} SET
+                run_count = run_count + 1,
+                last_run_at = NOW(),
+                consecutive_errors = consecutive_errors + 1,
+                last_error = $2,
+                updated_at = NOW()
+            WHERE id = $1
+            RETURNING *
+            """,
+            task_id,
+            error[:1000],
+        )
+        return Task(**dict(row)) if row else None
+
+    async def auto_disable_task(
+        self, task_id: uuid.UUID, reason: str
+    ) -> None:
+        await self.pool.execute(
+            f"""
+            UPDATE {self._t('tasks')} SET
+                enabled = false,
+                auto_disabled_at = NOW(),
+                auto_disabled_reason = $2,
+                updated_at = NOW()
+            WHERE id = $1
+            """,
+            task_id,
+            reason[:1000],
         )
 
     # ── Analytics ────────────────────────────────────────────

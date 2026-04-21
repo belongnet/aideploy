@@ -11,6 +11,9 @@ services:
     build: ./master-dashboard
     container_name: openclaw-master-dashboard
     restart: unless-stopped
+    # init reaps child processes; without it, PID 1 accumulates zombies from
+    # exec/subprocess tools until new exec calls hang.
+    init: true
     ports:
       - "3000:3000"
     environment:
@@ -35,6 +38,7 @@ services:
     build: ./agent
     container_name: openclaw-agent-{{this.index}}
     restart: unless-stopped
+    init: true
     ports:
       - "{{this.agent_port}}:{{this.agent_port}}"
     environment:
@@ -62,6 +66,7 @@ services:
     build: ./gateway
     container_name: openclaw-gateway-{{this.index}}
     restart: unless-stopped
+    init: true
     ports:
       - "{{this.gateway_port}}:{{this.gateway_port}}"
     environment:
@@ -93,6 +98,7 @@ services:
     build: ./dashboard
     container_name: openclaw-dashboard-{{this.index}}
     restart: unless-stopped
+    init: true
     ports:
       - "{{this.dashboard_port}}:{{this.dashboard_port}}"
     environment:

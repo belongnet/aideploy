@@ -289,6 +289,11 @@ BEGIN
             auto_approve    BOOLEAN NOT NULL DEFAULT true,
             run_count       INT NOT NULL DEFAULT 0,
             last_run_at     TIMESTAMPTZ,
+            consecutive_errors INT NOT NULL DEFAULT 0,
+            last_error      TEXT,
+            auto_disable_threshold INT NOT NULL DEFAULT 5,
+            auto_disabled_at TIMESTAMPTZ,
+            auto_disabled_reason TEXT,
             created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
@@ -297,7 +302,12 @@ BEGIN
     -- Backfill for existing agent schemas.
     EXECUTE format('
         ALTER TABLE %I.tasks
-            ADD COLUMN IF NOT EXISTS auto_approve BOOLEAN NOT NULL DEFAULT true
+            ADD COLUMN IF NOT EXISTS auto_approve BOOLEAN NOT NULL DEFAULT true,
+            ADD COLUMN IF NOT EXISTS consecutive_errors INT NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS last_error TEXT,
+            ADD COLUMN IF NOT EXISTS auto_disable_threshold INT NOT NULL DEFAULT 5,
+            ADD COLUMN IF NOT EXISTS auto_disabled_at TIMESTAMPTZ,
+            ADD COLUMN IF NOT EXISTS auto_disabled_reason TEXT
     ', p_schema_name);
     -- Widen action_type CHECK constraint for older schemas.
     EXECUTE format('

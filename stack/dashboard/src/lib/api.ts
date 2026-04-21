@@ -95,19 +95,23 @@ export const toggleStar = (id: string, starred: boolean) =>
 /*  Tasks                                                              */
 /* ------------------------------------------------------------------ */
 
-export const fetchTasks = () =>
-  request<
-    {
-      id: string;
-      name: string;
-      description: string;
-      trigger: string;
-      action: string;
-      enabled: boolean;
-      lastRun: string | null;
-      runCount: number;
-    }[]
-  >("/api/tasks");
+export interface TaskSummary {
+  id: string;
+  name: string;
+  description: string;
+  trigger: string;
+  action: string;
+  enabled: boolean;
+  lastRun: string | null;
+  runCount: number;
+  // Circuit-breaker health fields emitted by the agent's Task model.
+  consecutive_errors?: number;
+  last_error?: string | null;
+  auto_disabled_at?: string | null;
+  auto_disabled_reason?: string | null;
+}
+
+export const fetchTasks = () => request<TaskSummary[]>("/api/tasks");
 
 export const toggleTask = (id: string, enabled: boolean) =>
   request<{ ok: boolean }>(`/api/tasks/${id}/toggle`, {

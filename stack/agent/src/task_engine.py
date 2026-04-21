@@ -98,8 +98,57 @@ class TaskEngine:
         task = await self.db.get_task(task_id)
         if not task or not task.enabled:
             return
-        await self.executor.execute(task, context={"trigger": "schedule"})
-        await self.db.increment_task_run(task_id)
+        await self._run_with_circuit_breaker(
+            task, context={"trigger": "schedule"}
+        )
+
+    async def _run_with_circuit_breaker(
+        self, task: Task, context: dict[str, Any]
+    ) -> Optional[dict[str, Any]]:
+        """Execute a task, tracking consecutive errors and auto-disabling
+        after `auto_disable_threshold` consecutive failures.
+
+        A runaway task (LLM timeouts, dead upstream API) would otherwise keep
+        announcing errors every cron tick. Pausing it gives the operator time
+        to fix the root cause instead of spamming the delivery channel.
+        """
+        try:
+            result = await self.executor.execute(task, context=context)
+        except Exception as exc:
+            await self._record_failure(task, repr(exc))
+            logger.error("Task '%s' failed: %s", task.name, exc)
+            raise
+
+        await self.db.increment_task_run(task.id)
+        return result
+
+    async def _record_failure(self, task: Task, error: str) -> None:
+        updated = await self.db.record_task_failure(task.id, error)
+        if not updated:
+            return
+        threshold = updated.auto_disable_threshold or 0
+        if threshold > 0 and updated.consecutive_errors >= threshold:
+            reason = (
+                f"Auto-disabled after {updated.consecutive_errors} consecutive "
+                f"errors. Last error: {error}"
+            )
+            await self.db.auto_disable_task(task.id, reason)
+            logger.warning(
+                "Task '%s' auto-disabled after %d consecutive errors",
+                task.name,
+                updated.consecutive_errors,
+            )
+            await self._reload_after_disable(task.id)
+
+    async def _reload_after_disable(self, task_id: uuid.UUID) -> None:
+        """Drop the disabled task's scheduler job so the next tick doesn't
+        retry. reload_tasks would also work but rebuilding every schedule on
+        each failure is overkill."""
+        job_id = f"task_schedule_{task_id}"
+        job = self.scheduler.get_job(job_id)
+        if job:
+            job.remove()
+        self._tasks = [t for t in self._tasks if t.id != task_id]
 
     async def evaluate_message(
         self, message: IncomingMessage, conversation_id: uuid.UUID
@@ -122,10 +171,9 @@ class TaskEngine:
                 "conversation_id": str(conversation_id),
             }
             try:
-                await self.executor.execute(task, context=context)
-                await self.db.increment_task_run(task.id)
-            except Exception as e:
-                logger.error(f"Failed to execute task '{task.name}': {e}")
+                await self._run_with_circuit_breaker(task, context=context)
+            except Exception:
+                pass  # logged inside _run_with_circuit_breaker
 
         return matched
 
@@ -156,10 +204,9 @@ class TaskEngine:
                 "payload": bus_message.payload,
             }
             try:
-                await self.executor.execute(task, context=context)
-                await self.db.increment_task_run(task.id)
-            except Exception as e:
-                logger.error(f"Failed to execute task '{task.name}': {e}")
+                await self._run_with_circuit_breaker(task, context=context)
+            except Exception:
+                pass
 
         return matched
 
@@ -181,10 +228,9 @@ class TaskEngine:
                 "participant_name": participant_name,
             }
             try:
-                await self.executor.execute(task, context=context)
-                await self.db.increment_task_run(task.id)
-            except Exception as e:
-                logger.error(f"Failed to execute task '{task.name}': {e}")
+                await self._run_with_circuit_breaker(task, context=context)
+            except Exception:
+                pass
 
         return matched
 
@@ -194,11 +240,10 @@ class TaskEngine:
         if not task:
             raise ValueError(f"Task {task_id} not found")
 
-        result = await self.executor.execute(
+        result = await self._run_with_circuit_breaker(
             task, context={"trigger": "manual"}
         )
-        await self.db.increment_task_run(task_id)
-        return result
+        return result or {}
 
     async def _matches_trigger(
         self,
