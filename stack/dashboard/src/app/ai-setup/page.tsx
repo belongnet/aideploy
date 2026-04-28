@@ -101,7 +101,7 @@ const MODEL_OPTIONS: Record<
     { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
   ],
   kimi: [
-    { value: "kimi-k2.5", label: "Kimi K2.5" },
+    { value: "kimi-k2.6", label: "Kimi K2.6" },
     { value: "kimi-k2", label: "Kimi K2" },
   ],
 };
