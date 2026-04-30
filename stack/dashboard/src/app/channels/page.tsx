@@ -226,7 +226,7 @@ export default function ChannelsPage() {
   /* ---------------------------------------------------------------- */
 
   return (
-    <div className="space-y-6">
+    <div className="settings-shell">
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -256,8 +256,8 @@ export default function ChannelsPage() {
       </div>
 
       {/* Explainer card */}
-      <section className="card bg-gradient-to-br from-brand-50 to-white border-brand-100">
-        <div className="flex gap-4">
+      <section className="settings-hero">
+        <div className="settings-hero-content">
           <div className="flex-shrink-0 flex h-12 w-12 items-center justify-center rounded-xl bg-brand-100">
             <svg
               className="h-6 w-6 text-brand-600"
@@ -301,7 +301,7 @@ export default function ChannelsPage() {
       {/*  Add channel panel                                              */}
       {/* -------------------------------------------------------------- */}
       {showAdd && (
-        <div className="card space-y-5 border-2 border-brand-200">
+        <div className="card space-y-5 border-2 border-brand-200 bg-white/95">
           <div className="flex items-center justify-between">
             <h2 className="section-title">Connect a Messaging App</h2>
             <button
@@ -317,7 +317,7 @@ export default function ChannelsPage() {
 
           {/* Step 1: Pick the app */}
           {!addType ? (
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="settings-card-grid-3">
               {availableTypes.map((type) => {
                 const meta = CHANNEL_META[type];
                 return (
@@ -330,7 +330,7 @@ export default function ChannelsPage() {
                       setSaveMessage("");
                       setSaveError("");
                     }}
-                    className="card text-left hover:border-brand-300 hover:shadow-md transition cursor-pointer min-h-touch"
+                    className="card h-full min-h-touch cursor-pointer text-left transition hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-md"
                   >
                     <div className="flex items-center gap-2 mb-2">
                       <span
@@ -483,7 +483,7 @@ export default function ChannelsPage() {
           ))}
         </div>
       ) : channels.length > 0 ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="settings-card-grid-3">
           {channels.map((ch) => {
             const meta = CHANNEL_META[ch.type] ?? {
               label: ch.type,
@@ -492,17 +492,17 @@ export default function ChannelsPage() {
             };
 
             return (
-              <div key={ch.id} className="card">
+              <div key={ch.id} className="card flex h-full flex-col">
                 {/* Header */}
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
+                <div className="mb-4 flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
                     <span
-                      className={`inline-flex h-9 w-9 items-center justify-center rounded-lg ${meta.bgColor} ${meta.color} text-sm font-bold`}
+                      className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${meta.bgColor} ${meta.color} text-sm font-bold`}
                     >
                       {meta.label.charAt(0)}
                     </span>
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-gray-900">
                         {ch.name || meta.label}
                       </p>
                       <p className="text-[11px] text-gray-500">
@@ -513,7 +513,7 @@ export default function ChannelsPage() {
                 </div>
 
                 {/* Status */}
-                <div className="flex items-center gap-2 mb-3">
+                <div className="mb-3 inline-flex w-fit items-center gap-2 rounded-full bg-gray-50 px-2.5 py-1 ring-1 ring-gray-100">
                   <span className={statusDot(ch.status)} />
                   <span className="text-xs text-gray-600">
                     {statusLabel(ch.status)}
@@ -521,13 +521,13 @@ export default function ChannelsPage() {
                 </div>
 
                 {/* Last activity */}
-                <p className="text-[11px] text-gray-400 mb-3">
+                <p className="mb-4 text-[11px] text-gray-400">
                   {formatDate(ch.lastActivity)}
                 </p>
 
                 {/* Remove */}
                 {removeConfirmId === ch.id ? (
-                  <div className="flex items-center gap-2">
+                  <div className="mt-auto flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
                     <span className="text-xs text-red-600">
                       Disconnect this app?
                     </span>
@@ -546,12 +546,14 @@ export default function ChannelsPage() {
                     </button>
                   </div>
                 ) : (
-                  <button
-                    onClick={() => setRemoveConfirmId(ch.id)}
-                    className="text-xs font-medium text-gray-400 hover:text-red-600 transition min-h-touch"
-                  >
-                    Disconnect
-                  </button>
+                  <div className="mt-auto border-t border-gray-100 pt-3">
+                    <button
+                      onClick={() => setRemoveConfirmId(ch.id)}
+                      className="text-xs font-medium text-gray-400 transition hover:text-red-600 min-h-touch"
+                    >
+                      Disconnect
+                    </button>
+                  </div>
                 )}
               </div>
             );

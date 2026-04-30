@@ -236,7 +236,7 @@ export default function SettingsPage() {
   /* ---------------------------------------------------------------- */
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="settings-shell">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="page-title">Settings</h1>
@@ -305,14 +305,15 @@ export default function SettingsPage() {
       {/* ============================================================ */}
       {/*  Section: Automation                                          */}
       {/* ============================================================ */}
+      <div className="settings-card-grid">
       <section className="card space-y-4">
         <h2 className="section-title">Automation</h2>
         <p className="text-sm text-gray-500">
           Controls whether scheduled and recurring tasks can run on their own.
         </p>
 
-        <div className="flex items-center justify-between">
-          <div className="pr-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
             <p className="text-sm font-medium text-gray-700">
               Let scheduled tasks run without asking
             </p>
@@ -350,7 +351,7 @@ export default function SettingsPage() {
         </p>
 
         {/* Enable toggle */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-sm font-medium text-gray-700">
               Automatically clean up old conversations
@@ -436,6 +437,7 @@ export default function SettingsPage() {
           </>
         )}
       </section>
+      </div>
 
       {/* ============================================================ */}
       {/*  Section: Infrastructure                                      */}

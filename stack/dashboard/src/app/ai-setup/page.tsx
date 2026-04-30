@@ -355,7 +355,7 @@ export default function AiSetupPage() {
   /* ---------------------------------------------------------------- */
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="settings-shell">
       {/* Page header */}
       <div>
         <h1 className="page-title">AI Setup</h1>
@@ -365,8 +365,8 @@ export default function AiSetupPage() {
       </div>
 
       {/* Explainer card */}
-      <section className="card bg-gradient-to-br from-brand-50 to-white border-brand-100">
-        <div className="flex gap-4">
+      <section className="settings-hero">
+        <div className="settings-hero-content">
           <div className="flex-shrink-0 flex h-12 w-12 items-center justify-center rounded-xl bg-brand-100">
             <svg
               className="h-6 w-6 text-brand-600"
@@ -510,6 +510,7 @@ export default function AiSetupPage() {
             </p>
           </div>
 
+          <div className="settings-card-grid">
           {consumerProviders.map((provider) => {
             const meta = PROVIDER_META[provider.id];
             if (!meta) return null;
@@ -524,16 +525,16 @@ export default function AiSetupPage() {
             return (
               <div
                 key={provider.id}
-                className={`card transition-all ${
+                className={`card flex h-full flex-col transition-all ${
                   isConnected
                     ? "border-green-200 bg-green-50"
                     : "border-gray-200"
                 }`}
               >
                 {/* Provider header */}
-                <div className="flex items-center gap-3 mb-2">
+                <div className="mb-2 flex flex-col gap-3 sm:flex-row sm:items-start">
                   <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-sm font-bold text-white shadow-sm"
                     style={{ backgroundColor: meta.color }}
                   >
                     {meta.icon}
@@ -545,7 +546,7 @@ export default function AiSetupPage() {
                     <p className="text-xs text-gray-500">{meta.description}</p>
                   </div>
                   {isConnected && (
-                    <div className="flex items-center gap-1.5 text-green-700">
+                    <div className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-white/80 px-2.5 py-1 text-green-700 ring-1 ring-green-200">
                       <svg
                         className="w-5 h-5"
                         fill="none"
@@ -566,7 +567,7 @@ export default function AiSetupPage() {
 
                 {/* Connect flow */}
                 {!isConnected && (
-                  <div className="space-y-4 mt-4 border-t border-gray-100 pt-4">
+                  <div className="mt-4 flex flex-1 flex-col space-y-4 border-t border-gray-100 pt-4">
                     <p className="text-xs text-gray-500">{meta.hint}</p>
 
                     <ol className="space-y-2">
@@ -589,7 +590,7 @@ export default function AiSetupPage() {
                     <button
                       onClick={() => handleStartConnect(provider.id)}
                       disabled={isSubmitting}
-                      className="inline-flex items-center justify-center gap-2 w-full py-4 rounded-2xl font-semibold text-base text-white transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="mt-auto inline-flex w-full items-center justify-center gap-2 rounded-2xl py-4 text-base font-semibold text-white shadow-lg transition-all hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-50"
                       style={{ backgroundColor: meta.color }}
                     >
                       {isSubmitting ? "Generating link..." : meta.buttonLabel}
@@ -715,6 +716,7 @@ export default function AiSetupPage() {
               </div>
             );
           })}
+          </div>
         </section>
       )}
 
@@ -731,12 +733,13 @@ export default function AiSetupPage() {
             </p>
           </div>
 
+          <div className="settings-card-grid">
           {apiKeyProviders.map((provider) => {
             const meta = PROVIDER_META[provider.id];
             return (
               <div
                 key={provider.id}
-                className="card border-green-200 bg-green-50"
+                className="card h-full border-green-200 bg-green-50"
               >
                 <div className="flex items-center gap-3">
                   <div
@@ -772,6 +775,7 @@ export default function AiSetupPage() {
               </div>
             );
           })}
+          </div>
         </section>
       )}
     </div>
