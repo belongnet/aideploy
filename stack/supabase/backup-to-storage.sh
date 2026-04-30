@@ -63,6 +63,11 @@ create_bucket() {
     200|201|409)
       return 0
       ;;
+    400)
+      if grep -q '"statusCode":"409"' "$response_file" 2>/dev/null || grep -q 'The resource already exists' "$response_file" 2>/dev/null; then
+        return 0
+      fi
+      ;;
   esac
   echo "[aideploy] Failed to ensure backup bucket $BUCKET (status $status)" >&2
   cat "$response_file" >&2 || true
