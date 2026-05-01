@@ -371,6 +371,145 @@ export const runPatch = (script: string) =>
   );
 
 /* ------------------------------------------------------------------ */
+/*  Recovery                                                          */
+/* ------------------------------------------------------------------ */
+
+export interface RecoveryArtifact {
+  name: string;
+  type: string;
+  sha256: string;
+  bytes: number;
+  remotePath: string;
+}
+
+export interface RecoveryManifest {
+  version: number;
+  runId: string;
+  mode: string;
+  deployId: string;
+  timestamp: string;
+  targetUrl: string;
+  provider: string;
+  nativeProvider: string;
+  bucket: string;
+  prefix: string;
+  includeStorage: string;
+  hostname: string;
+  artifacts: RecoveryArtifact[];
+}
+
+export interface RecoveryBackupRun {
+  id: string;
+  mode: string;
+  status: string;
+  provider: string;
+  nativeProvider: string;
+  bucket: string;
+  prefix: string;
+  archiveRoot: string;
+  startedAt: string;
+  updatedAt: string;
+  error: string;
+  manifestAvailable: boolean;
+  artifactCount: number;
+  totalBytes: number;
+}
+
+export interface RecoveryOverview {
+  stateDir: string;
+  readable: boolean;
+  status: "healthy" | "empty" | "unavailable";
+  message: string;
+  latestRun: RecoveryBackupRun | null;
+  backups: RecoveryBackupRun[];
+  latestRestore: RecoveryRestoreRun | null;
+  restores: RecoveryRestoreRun[];
+}
+
+export interface RecoveryPreview {
+  backup: RecoveryBackupRun;
+  manifest: RecoveryManifest | null;
+  restorePlan: string[];
+}
+
+export interface RecoveryRestoreRun {
+  id: string;
+  backupRunId: string;
+  status: string;
+  mode: string;
+  productionOverwrite: boolean;
+  logPath: string;
+  message: string;
+  error: string;
+  updatedAt: string;
+}
+
+export interface RecoveryArtifactChange {
+  name: string;
+  type: string;
+  change: "added" | "removed" | "changed" | "unchanged";
+  beforeSha256: string;
+  afterSha256: string;
+  beforeBytes: number;
+  afterBytes: number;
+  beforeRemotePath: string;
+  afterRemotePath: string;
+}
+
+export interface RecoveryMergePreview {
+  runId: string;
+  baselineRunId: string;
+  baselineLabel: string;
+  destructive: boolean;
+  summary: string;
+  artifactChanges: RecoveryArtifactChange[];
+  manifestDiff: string;
+  decision: {
+    action: "record-merge-request";
+    label: string;
+  };
+}
+
+export interface RestorePlaceholderResult {
+  ok: boolean;
+  placeholder: boolean;
+  destructive?: boolean;
+  started?: boolean;
+  executorPid?: number;
+  restoreRunId: string;
+  runId: string;
+  message: string;
+}
+
+export interface RecoveryRestoreRequestOptions {
+  mergeReviewed?: boolean;
+  confirmation?: string;
+}
+
+export const fetchRecoveryOverview = () =>
+  request<RecoveryOverview>("/dashboard-api/recovery");
+
+export const fetchRecoveryPreview = (runId: string) => {
+  const qs = new URLSearchParams({ runId });
+  return request<RecoveryPreview>(`/dashboard-api/recovery/preview?${qs}`);
+};
+
+export const fetchRecoveryMergePreview = (runId: string) => {
+  const qs = new URLSearchParams({ runId });
+  return request<RecoveryMergePreview>(`/dashboard-api/recovery/merge?${qs}`);
+};
+
+export const requestRecoveryRestore = (
+  runId: string,
+  mode: "full" | "merge" = "full",
+  options: RecoveryRestoreRequestOptions = {},
+) =>
+  request<RestorePlaceholderResult>("/dashboard-api/recovery/restore", {
+    method: "POST",
+    body: JSON.stringify({ runId, mode, ...options }),
+  });
+
+/* ------------------------------------------------------------------ */
 /*  First-run AI setup                                                 */
 /* ------------------------------------------------------------------ */
 

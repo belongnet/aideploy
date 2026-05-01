@@ -5,6 +5,7 @@ COPY init.sql /docker-entrypoint-initdb.d/01-init.sql
 COPY bus_trigger.sql /docker-entrypoint-initdb.d/02-bus_trigger.sql
 COPY seed.sql /docker-entrypoint-initdb.d/03-seed.sql
 COPY 04-memory.sql /docker-entrypoint-initdb.d/04-memory.sql
+COPY 05-backup-recovery.sql /docker-entrypoint-initdb.d/05-backup-recovery.sql
 
 ENV POSTGRES_DB=openclaw
 ENV POSTGRES_USER=openclaw
