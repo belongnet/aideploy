@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.aideploy.co/upgrade/support-bundle.schema.json",
+  "title": "AI Deploy Update Support Bundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "generated_at",
+    "redaction",
+    "receipt",
+    "events"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "aideploy-update-support-bundle-v1"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "redaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "secrets_removed"],
+      "properties": {
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "secrets_removed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["from_release", "to_release", "manifest_digest"],
+      "properties": {
+        "from_release": {
+          "type": "string"
+        },
+        "to_release": {
+          "type": "string"
+        },
+        "manifest_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-fA-F0-9]{64}$"
+        }
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "health": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  }
+}

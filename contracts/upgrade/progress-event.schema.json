@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.aideploy.co/upgrade/progress-event.schema.json",
+  "title": "AI Deploy Update Progress Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "step", "status", "updated_at", "message"],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "step": {
+      "enum": ["preflight", "snapshot", "stage", "apply", "verify", "rollback", "finalize"]
+    },
+    "status": {
+      "enum": ["pending", "running", "succeeded", "failed", "skipped"]
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "eta_seconds": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 240
+    },
+    "error_code": {
+      "type": "string",
+      "pattern": "^UPD-[0-9]{4}$"
+    }
+  }
+}
