@@ -65,6 +65,7 @@ export default function RecoveryPage() {
     : "";
   const fullRestoreReady =
     !!mergePreview &&
+    selectedRun?.restoreEligible !== false &&
     !!expectedFullRestoreConfirm &&
     fullRestoreConfirm.trim() === expectedFullRestoreConfirm;
 
@@ -176,7 +177,7 @@ export default function RecoveryPage() {
         <div>
           <h1 className="page-title">Recovery</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Review local backup metadata and prepare a restore run.
+            Review local and cloud backup metadata and prepare a restore run.
           </p>
         </div>
         <button onClick={loadOverview} className="btn-secondary text-sm">
@@ -223,9 +224,15 @@ export default function RecoveryPage() {
           }
         />
         <StatusCard
-          label="State directory"
-          value={overview?.readable ? "Readable" : "Not readable"}
-          detail={overview?.stateDir ?? "/var/lib/aideploy/backups"}
+          label="Cloud catalog"
+          value={
+            overview?.catalogStatus === "healthy"
+              ? "Available"
+              : overview?.catalogStatus === "empty"
+                ? "No manifests"
+                : "Unavailable"
+          }
+          detail={overview?.catalogMessage ?? "No cloud catalog loaded."}
         />
       </section>
 
@@ -235,7 +242,7 @@ export default function RecoveryPage() {
             <div>
               <h2 className="section-title">Backups</h2>
               <p className="mt-1 text-sm text-gray-500">
-                Local records from the backup state directory.
+                Local records merged with cloud manifests from the native object store.
               </p>
             </div>
             <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600">
@@ -261,6 +268,7 @@ export default function RecoveryPage() {
               </p>
               <p className="mt-1 text-sm text-gray-500">
                 Backup metadata will appear here after a run writes to the state directory.
+                Cloud manifests are listed when the target object store is reachable.
               </p>
             </div>
           )}
@@ -292,7 +300,7 @@ export default function RecoveryPage() {
                     </p>
                     <p className="mt-1 text-xs text-gray-500">
                       {selectedRun.provider || "Unknown provider"} ·{" "}
-                      {selectedRun.bucket || "No bucket"}
+                      {selectedRun.bucket || "No bucket"} · {selectedRun.source || "local"}
                     </p>
                   </div>
                   <span
@@ -305,6 +313,16 @@ export default function RecoveryPage() {
                 </div>
                 {selectedRun.error && (
                   <p className="mt-3 text-sm text-red-600">{selectedRun.error}</p>
+                )}
+                {selectedRun.catalogMessage && (
+                  <p className="mt-3 text-sm text-gray-600">
+                    {selectedRun.catalogMessage}
+                  </p>
+                )}
+                {!selectedRun.restoreEligible && selectedRun.restoreBlockedReason && (
+                  <p className="mt-3 text-sm text-amber-700">
+                    {selectedRun.restoreBlockedReason}
+                  </p>
                 )}
               </div>
 
@@ -437,7 +455,9 @@ export default function RecoveryPage() {
                   >
                     {restoreLoading
                       ? "Recording..."
-                      : "Start Full Production Restore"}
+                      : selectedRun.restoreEligible === false
+                        ? "Full Restore Unavailable"
+                        : "Start Full Production Restore"}
                   </button>
                 </div>
               </div>
@@ -505,6 +525,9 @@ function BackupButton({
             >
               {backup.status || "unknown"}
             </span>
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+              {backup.source || "local"}
+            </span>
           </div>
           <p className="mt-1 text-sm text-gray-500">
             {backup.mode || "unknown"} · {formatDate(backup.updatedAt)}
@@ -512,12 +535,20 @@ function BackupButton({
           <p className="mt-1 truncate text-xs text-gray-400">
             {backup.archiveRoot || backup.prefix || "No archive path recorded"}
           </p>
+          {backup.catalogStatus && (
+            <p className="mt-1 truncate text-xs text-gray-500">
+              {backup.catalogStatus}
+            </p>
+          )}
         </div>
         <div className="shrink-0 text-left sm:text-right">
           <p className="text-sm font-medium text-gray-700">
             {backup.artifactCount} artifacts
           </p>
           <p className="text-xs text-gray-500">{formatBytes(backup.totalBytes)}</p>
+          {!backup.restoreEligible && (
+            <p className="text-xs text-amber-600">inspect only</p>
+          )}
         </div>
       </div>
     </button>

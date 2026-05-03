@@ -263,6 +263,16 @@ upload_native_object() {
   esac
 }
 
+upload_run_record() {
+  local remote_path
+  remote_path="$(native_remote_path "$TIMESTAMP/run.json")"
+  if [ "$NATIVE_PROVIDER" = "supabase-storage" ] || [ -z "$NATIVE_PROVIDER" ]; then
+    upload_supabase_object "$remote_path" "$RUN_RECORD" "application/json"
+  else
+    upload_native_object "$remote_path" "$RUN_RECORD"
+  fi
+}
+
 artifact_sha256() {
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$1" | awk '{print $1}'
@@ -520,4 +530,5 @@ done
 cp "$MANIFEST" "$STATE_DIR/runs/${RUN_ID}-manifest.json"
 prune_remote_backups
 write_run_record "completed"
+upload_run_record || echo "[aideploy] WARNING: could not upload remote run status marker" >&2
 echo "[aideploy] Backup uploaded to $BACKUP_PROVIDER/$NATIVE_BUCKET/$(native_remote_path "$TIMESTAMP")"
