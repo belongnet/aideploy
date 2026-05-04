@@ -436,6 +436,7 @@ archive_runtime_files() {
     /home/aideploy/.openclaw \
     /home/aideploy/.hermes \
     /home/aideploy/runtime-secrets \
+    /home/aideploy/runtime/default \
     /home/aideploy/runtime/plugins \
     /home/aideploy/runtime/open-webui/data \
     /home/aideploy/workspace \
