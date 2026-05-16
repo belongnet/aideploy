@@ -37,13 +37,13 @@ variable "server_size" {
 }
 
 variable "agent_count" {
-  description = "Number of agents to deploy (1–10)"
+  description = "Number of agents to deploy (1–16)"
   type        = number
   default     = 1
 
   validation {
-    condition     = var.agent_count >= 1 && var.agent_count <= 10
-    error_message = "Agent count must be between 1 and 10."
+    condition     = var.agent_count >= 1 && var.agent_count <= 16
+    error_message = "Agent count must be between 1 and 16."
   }
 }
 
