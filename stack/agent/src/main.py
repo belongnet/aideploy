@@ -1,9 +1,15 @@
 """
-OpenClaw Agent — Main entry point.
+Karamba (beta) Agent — Main entry point.
 
 Starts the agent: loads config, connects to DB, initializes LLM client,
 bus client, task engine, prune job, and the FastAPI HTTP server for
 receiving messages from the gateway and serving the dashboard API.
+
+Note: This runtime was previously named "OpenClaw" — the name collided with
+the unrelated upstream OpenClaw project (https://github.com/openclaw/openclaw).
+The runtime is renamed to Karamba; the launcher product, container names,
+and on-disk paths intentionally retain the `openclaw-*` prefixes (launcher
+infrastructure, not user-facing branding). See CLAUDE.md.
 """
 
 from __future__ import annotations

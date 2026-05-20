@@ -1,9 +1,20 @@
 import asyncio
+import json
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
+from fastapi import HTTPException
+
+from src.adapters.slack import SlackAdapter
+from src.adapters.telegram import TelegramAdapter
+from src.adapters.whatsapp import WhatsAppAdapter
 from src.normalizer import NormalizedMessage
-from src.router import _upload_provider_attachments, telegram_webhook
+from src.router import (
+    _upload_provider_attachments,
+    slack_webhook,
+    telegram_webhook,
+    whatsapp_webhook,
+)
 
 
 class _FakeStorageClient:
@@ -23,12 +34,27 @@ class _FakeStorageClient:
 
 
 class _FakeRequest:
-    def __init__(self, payload: dict[str, object], headers: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        payload: dict[str, object],
+        headers: dict[str, str] | None = None,
+        raw_body: bytes | None = None,
+    ) -> None:
         self._payload = payload
-        self.headers = headers or {"X-Telegram-Bot-Api-Secret-Token": ""}
+        self.headers = (
+            headers
+            if headers is not None
+            else {"X-Telegram-Bot-Api-Secret-Token": ""}
+        )
+        self._raw_body = raw_body
 
     async def json(self) -> dict[str, object]:
         return self._payload
+
+    async def body(self) -> bytes:
+        if self._raw_body is not None:
+            return self._raw_body
+        return json.dumps(self._payload).encode("utf-8")
 
 
 class RouterAttachmentUploadTest(unittest.IsolatedAsyncioTestCase):
@@ -101,6 +127,32 @@ class RouterAttachmentUploadTest(unittest.IsolatedAsyncioTestCase):
 
 
 class TelegramWebhookTest(unittest.IsolatedAsyncioTestCase):
+    async def test_rejects_missing_telegram_webhook_secret(self) -> None:
+        with (
+            patch("src.router.DEPLOY_ID", "local"),
+            patch("src.router.telegram_adapter", TelegramAdapter("bot-token", "")),
+            self.assertRaises(HTTPException) as raised,
+        ):
+            await telegram_webhook(
+                "local",
+                _FakeRequest(
+                    {},
+                    headers={"X-Telegram-Bot-Api-Secret-Token": "anything"},
+                ),
+            )
+
+        self.assertEqual(raised.exception.status_code, 401)
+
+    async def test_rejects_missing_telegram_secret_header(self) -> None:
+        with (
+            patch("src.router.DEPLOY_ID", "local"),
+            patch("src.router.telegram_adapter", TelegramAdapter("bot-token", "secret")),
+            self.assertRaises(HTTPException) as raised,
+        ):
+            await telegram_webhook("local", _FakeRequest({}, headers={}))
+
+        self.assertEqual(raised.exception.status_code, 401)
+
     async def test_acknowledges_my_chat_member_updates_without_forwarding(self) -> None:
         fake_adapter = Mock()
         fake_adapter.verify_secret_token.return_value = True
@@ -183,6 +235,48 @@ class TelegramWebhookTest(unittest.IsolatedAsyncioTestCase):
             "Done",
             normalized.metadata,
         )
+
+
+class WhatsAppWebhookTest(unittest.IsolatedAsyncioTestCase):
+    async def test_rejects_missing_whatsapp_app_secret(self) -> None:
+        with (
+            patch("src.router.DEPLOY_ID", "local"),
+            patch(
+                "src.router.whatsapp_adapter",
+                WhatsAppAdapter("access-token", "verify-token", "phone-id", ""),
+            ),
+            self.assertRaises(HTTPException) as raised,
+        ):
+            await whatsapp_webhook(
+                "local",
+                _FakeRequest(
+                    {"entry": [{"changes": [{"value": {"messages": [{}]}}]}]},
+                    headers={"X-Hub-Signature-256": "sha256=anything"},
+                ),
+            )
+
+        self.assertEqual(raised.exception.status_code, 401)
+
+
+class SlackWebhookTest(unittest.IsolatedAsyncioTestCase):
+    async def test_rejects_url_verification_when_signing_secret_missing(self) -> None:
+        with (
+            patch("src.router.DEPLOY_ID", "local"),
+            patch("src.router.slack_adapter", SlackAdapter("xoxb-token", "")),
+            self.assertRaises(HTTPException) as raised,
+        ):
+            await slack_webhook(
+                "local",
+                _FakeRequest(
+                    {"type": "url_verification", "challenge": "challenge-token"},
+                    headers={
+                        "X-Slack-Request-Timestamp": "123",
+                        "X-Slack-Signature": "v0=anything",
+                    },
+                ),
+            )
+
+        self.assertEqual(raised.exception.status_code, 401)
 
 
 if __name__ == "__main__":

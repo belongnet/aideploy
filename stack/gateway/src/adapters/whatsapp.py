@@ -56,9 +56,10 @@ class WhatsAppAdapter:
         return bool(value.get("messages"))
 
     def verify_signature(self, body: bytes, signature_header: str) -> bool:
-        """Validate WhatsApp's X-Hub-Signature-256 header when configured."""
+        """Validate WhatsApp's X-Hub-Signature-256 header."""
         if not self.app_secret:
-            return True
+            return False
+        signature_header = signature_header.strip()
         if not signature_header.startswith("sha256="):
             return False
         expected = hmac.new(

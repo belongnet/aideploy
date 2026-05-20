@@ -22,7 +22,7 @@ class SlackAdapter:
 
     def __init__(self, bot_token: str, signing_secret: str):
         self.bot_token = bot_token
-        self.signing_secret = signing_secret
+        self.signing_secret = signing_secret.strip()
 
     def normalize(self, payload: dict[str, Any]) -> NormalizedMessage | None:
         """Convert Slack event to normalized message."""
@@ -39,6 +39,9 @@ class SlackAdapter:
         self, body: bytes, timestamp: str, signature: str
     ) -> bool:
         """Verify Slack request signature for security."""
+        if not self.signing_secret:
+            return False
+
         # Reject requests older than 5 minutes
         try:
             ts = int(timestamp)

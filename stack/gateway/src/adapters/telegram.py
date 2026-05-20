@@ -40,9 +40,9 @@ class TelegramAdapter:
         )
 
     def verify_secret_token(self, secret_token: str) -> bool:
-        """Validate Telegram's webhook secret token header when configured."""
+        """Validate Telegram's webhook secret token header."""
         if not self.webhook_secret:
-            return True
+            return False
         if not secret_token:
             return False
-        return hmac.compare_digest(self.webhook_secret, secret_token)
+        return hmac.compare_digest(self.webhook_secret, secret_token.strip())
