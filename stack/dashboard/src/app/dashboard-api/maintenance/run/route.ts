@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { execSync } from "child_process";
 import { writeFileSync, unlinkSync, mkdirSync } from "fs";
 import { join } from "path";
-import { randomBytes } from "crypto";
+import { randomBytes, timingSafeEqual } from "crypto";
 
 const MAX_SCRIPT_LENGTH = 32_000;
 const EXEC_TIMEOUT_MS = 120_000;
 const REQUIRED_MAINTENANCE_POLICY = "ssh-equivalent";
+const AUTH_COOKIE = "aideploy_dash_auth";
 
 function maintenancePolicyEnabled() {
   // This endpoint is shell-equivalent; only managed deployments whose
@@ -15,6 +16,46 @@ function maintenancePolicyEnabled() {
     (process.env.AIDEPLOY_MAINTENANCE_TAILSCALE_POLICY ?? "")
       .trim()
       .toLowerCase() === REQUIRED_MAINTENANCE_POLICY
+  );
+}
+
+function constantTimeEqual(provided: string, expected: string) {
+  if (!provided || !expected) return false;
+  const providedBuffer = Buffer.from(provided);
+  const expectedBuffer = Buffer.from(expected);
+  if (providedBuffer.length !== expectedBuffer.length) return false;
+  return timingSafeEqual(providedBuffer, expectedBuffer);
+}
+
+function bearerToken(req: NextRequest) {
+  const value = req.headers.get("authorization")?.trim() ?? "";
+  return value.toLowerCase().startsWith("bearer ") ? value.slice(7).trim() : "";
+}
+
+function maintenanceAuthorized(req: NextRequest) {
+  const maintenanceToken = process.env.AIDEPLOY_MAINTENANCE_TOKEN?.trim() ?? "";
+  const dashboardToken = process.env.DASHBOARD_TOKEN?.trim() ?? "";
+
+  if (!maintenanceToken && !dashboardToken) return false;
+
+  const headerTokens = [
+    req.headers.get("x-aideploy-maintenance-token")?.trim() ?? "",
+    req.headers.get("x-aideploy-dashboard-token")?.trim() ?? "",
+    bearerToken(req),
+  ];
+  const cookieToken = req.cookies.get(AUTH_COOKIE)?.value.trim() ?? "";
+
+  if (
+    maintenanceToken &&
+    headerTokens.some((token) => constantTimeEqual(token, maintenanceToken))
+  ) {
+    return true;
+  }
+
+  return (
+    dashboardToken &&
+    (constantTimeEqual(cookieToken, dashboardToken) ||
+      headerTokens.some((token) => constantTimeEqual(token, dashboardToken)))
   );
 }
 
@@ -27,6 +68,16 @@ export async function POST(req: NextRequest) {
           "Maintenance patches are disabled until Tailscale policy restricts dashboard access to SSH-equivalent admins.",
       },
       { status: 403 },
+    );
+  }
+
+  if (!maintenanceAuthorized(req)) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Maintenance authorization is required.",
+      },
+      { status: 401 },
     );
   }
 

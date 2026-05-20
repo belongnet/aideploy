@@ -10,6 +10,7 @@ from src.adapters.telegram import TelegramAdapter
 from src.adapters.whatsapp import WhatsAppAdapter
 from src.normalizer import NormalizedMessage
 from src.router import (
+    _require_internal_auth,
     _upload_provider_attachments,
     slack_webhook,
     telegram_webhook,
@@ -47,6 +48,7 @@ class _FakeRequest:
             else {"X-Telegram-Bot-Api-Secret-Token": ""}
         )
         self._raw_body = raw_body
+        self.query_params: dict[str, str] = {}
 
     async def json(self) -> dict[str, object]:
         return self._payload
@@ -141,7 +143,7 @@ class TelegramWebhookTest(unittest.IsolatedAsyncioTestCase):
                 ),
             )
 
-        self.assertEqual(raised.exception.status_code, 401)
+        self.assertEqual(raised.exception.status_code, 503)
 
     async def test_rejects_missing_telegram_secret_header(self) -> None:
         with (
@@ -155,6 +157,7 @@ class TelegramWebhookTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_acknowledges_my_chat_member_updates_without_forwarding(self) -> None:
         fake_adapter = Mock()
+        fake_adapter.webhook_secret = "secret"
         fake_adapter.verify_secret_token.return_value = True
         fake_adapter.validate_update.return_value = True
 
@@ -188,6 +191,7 @@ class TelegramWebhookTest(unittest.IsolatedAsyncioTestCase):
         )
 
         fake_adapter = Mock()
+        fake_adapter.webhook_secret = "secret"
         fake_adapter.verify_secret_token.return_value = True
         fake_adapter.validate_update.return_value = True
         fake_adapter.normalize.return_value = normalized
@@ -255,7 +259,7 @@ class WhatsAppWebhookTest(unittest.IsolatedAsyncioTestCase):
                 ),
             )
 
-        self.assertEqual(raised.exception.status_code, 401)
+        self.assertEqual(raised.exception.status_code, 503)
 
 
 class SlackWebhookTest(unittest.IsolatedAsyncioTestCase):
@@ -276,7 +280,17 @@ class SlackWebhookTest(unittest.IsolatedAsyncioTestCase):
                 ),
             )
 
-        self.assertEqual(raised.exception.status_code, 401)
+        self.assertEqual(raised.exception.status_code, 503)
+
+
+class InternalAuthTest(unittest.TestCase):
+    def test_internal_auth_fails_closed_when_service_token_missing(self) -> None:
+        request = _FakeRequest({})
+        with patch("src.router.AGENT_SERVICE_TOKEN", ""):
+            with self.assertRaises(HTTPException) as ctx:
+                _require_internal_auth(request)  # type: ignore[arg-type]
+
+        self.assertEqual(ctx.exception.status_code, 503)
 
 
 if __name__ == "__main__":
