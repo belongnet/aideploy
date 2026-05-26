@@ -40,7 +40,11 @@ class TelegramAdapter:
         )
 
     def verify_secret_token(self, secret_token: str) -> bool:
-        """Validate Telegram's webhook secret token header."""
+        """Validate Telegram's webhook secret token header.
+
+        Returns False when no secret is configured — callers should reject
+        the request rather than silently accepting unverified payloads.
+        """
         if not self.webhook_secret:
             return False
         if not secret_token:
