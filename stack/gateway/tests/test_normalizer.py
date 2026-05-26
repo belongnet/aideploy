@@ -43,6 +43,78 @@ class TelegramNormalizerTest(unittest.TestCase):
 
 
 class WhatsAppNormalizerTest(unittest.TestCase):
+    def test_preserves_text_message_metadata(self) -> None:
+        normalized = normalize_whatsapp(
+            {
+                "entry": [
+                    {
+                        "changes": [
+                            {
+                                "value": {
+                                    "metadata": {"phone_number_id": "phone-1"},
+                                    "contacts": [{"profile": {"name": "Maya"}}],
+                                    "messages": [
+                                        {
+                                            "id": "wamid-text",
+                                            "from": "15551234567",
+                                            "timestamp": "1710000001",
+                                            "type": "text",
+                                            "text": {"body": "Can you put Maya plus 2 on guestlist?"},
+                                        }
+                                    ],
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        )
+
+        self.assertIsNotNone(normalized)
+        self.assertEqual(normalized.channel_type, "whatsapp")
+        self.assertEqual(normalized.channel_id, "phone-1")
+        self.assertEqual(normalized.chat_id, "15551234567")
+        self.assertEqual(normalized.sender_name, "Maya")
+        self.assertEqual(normalized.text, "Can you put Maya plus 2 on guestlist?")
+        self.assertEqual(normalized.metadata["message_id"], "wamid-text")
+
+    def test_interactive_button_reply_uses_reply_id_as_text(self) -> None:
+        normalized = normalize_whatsapp(
+            {
+                "entry": [
+                    {
+                        "changes": [
+                            {
+                                "value": {
+                                    "metadata": {"phone_number_id": "phone-1"},
+                                    "contacts": [{"profile": {"name": "Owner"}}],
+                                    "messages": [
+                                        {
+                                            "id": "wamid-button",
+                                            "from": "15550000000",
+                                            "timestamp": "1710000002",
+                                            "type": "interactive",
+                                            "interactive": {
+                                                "type": "button_reply",
+                                                "button_reply": {
+                                                    "id": "ocai:provider:openai",
+                                                    "title": "ChatGPT",
+                                                },
+                                            },
+                                        }
+                                    ],
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        )
+
+        self.assertIsNotNone(normalized)
+        self.assertEqual(normalized.text, "ocai:provider:openai")
+        self.assertEqual(normalized.metadata["message_type"], "interactive")
+
     def test_builds_media_attachment_descriptors(self) -> None:
         normalized = normalize_whatsapp(
             {

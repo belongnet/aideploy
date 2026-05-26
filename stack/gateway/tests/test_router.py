@@ -1,4 +1,6 @@
 import asyncio
+import hashlib
+import hmac
 import json
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
@@ -15,6 +17,7 @@ from src.router import (
     slack_webhook,
     telegram_webhook,
     whatsapp_webhook,
+    whatsapp_verify,
 )
 
 
@@ -242,6 +245,24 @@ class TelegramWebhookTest(unittest.IsolatedAsyncioTestCase):
 
 
 class WhatsAppWebhookTest(unittest.IsolatedAsyncioTestCase):
+    async def test_get_verification_returns_challenge_for_matching_token(self) -> None:
+        with (
+            patch("src.router.DEPLOY_ID", "local"),
+            patch(
+                "src.router.whatsapp_adapter",
+                WhatsAppAdapter("access-token", "verify-token", "phone-id", "app-secret"),
+            ),
+        ):
+            response = await whatsapp_verify(
+                "local",
+                hub_mode="subscribe",
+                hub_token="verify-token",
+                hub_challenge="challenge-123",
+            )
+
+        self.assertEqual(response.body.decode("utf-8"), "challenge-123")
+        self.assertEqual(response.media_type, "text/plain")
+
     async def test_rejects_missing_whatsapp_app_secret(self) -> None:
         with (
             patch("src.router.DEPLOY_ID", "local"),
@@ -260,6 +281,73 @@ class WhatsAppWebhookTest(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(raised.exception.status_code, 503)
+
+    async def test_signed_post_forwards_to_agent_and_replies(self) -> None:
+        payload = {
+            "entry": [
+                {
+                    "changes": [
+                        {
+                            "value": {
+                                "metadata": {"phone_number_id": "phone-id"},
+                                "contacts": [{"profile": {"name": "Maya"}}],
+                                "messages": [
+                                    {
+                                        "id": "wamid-in",
+                                        "from": "15551234567",
+                                        "timestamp": "1710000000",
+                                        "type": "text",
+                                        "text": {"body": "Can you put Maya plus 2 on guestlist?"},
+                                    }
+                                ],
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+        raw_body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        signature = "sha256=" + hmac.new(
+            b"app-secret",
+            raw_body,
+            hashlib.sha256,
+        ).hexdigest()
+        fake_dispatcher = Mock()
+        fake_dispatcher.send = AsyncMock()
+
+        with (
+            patch("src.router.DEPLOY_ID", "local"),
+            patch(
+                "src.router.whatsapp_adapter",
+                WhatsAppAdapter("access-token", "verify-token", "phone-id", "app-secret"),
+            ),
+            patch("src.router.whatsapp_setup", None),
+            patch("src.router.dispatcher", fake_dispatcher),
+            patch(
+                "src.router.prepare_incoming_message",
+                new=AsyncMock(return_value={"prepared": True}),
+            ) as prepare_incoming_message,
+            patch(
+                "src.router.forward_to_agent",
+                new=AsyncMock(return_value="Review draft ready."),
+            ) as forward_to_agent,
+        ):
+            response = await whatsapp_webhook(
+                "local",
+                _FakeRequest(
+                    payload,
+                    headers={"X-Hub-Signature-256": signature},
+                    raw_body=raw_body,
+                ),
+            )
+
+        self.assertEqual(response, {"status": "ok"})
+        prepare_incoming_message.assert_awaited_once()
+        forward_to_agent.assert_awaited_once_with({"prepared": True})
+        fake_dispatcher.send.assert_awaited_once()
+        self.assertEqual(fake_dispatcher.send.await_args.args[0], "whatsapp")
+        self.assertEqual(fake_dispatcher.send.await_args.args[1], "15551234567")
+        self.assertEqual(fake_dispatcher.send.await_args.args[2], "Review draft ready.")
 
 
 class SlackWebhookTest(unittest.IsolatedAsyncioTestCase):
