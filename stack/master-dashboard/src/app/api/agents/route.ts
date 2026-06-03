@@ -443,7 +443,7 @@ function getMockAgents(): Agent[] {
       config: {
         model_provider: "openai",
         auth_method: "oauth",
-        model: "gpt-5.3-codex",
+        model: "gpt-5.5",
         system_prompt: "You are a helpful support agent.",
         agent_name: "Support Agent",
         temperature: 0.7,
@@ -480,7 +480,7 @@ function getMockAgents(): Agent[] {
       config: {
         model_provider: "anthropic",
         auth_method: "oauth",
-        model: "claude-opus-4.6",
+        model: "claude-opus-4-8",
         system_prompt: "You are a research assistant.",
         agent_name: "Research Agent",
         temperature: 0.5,

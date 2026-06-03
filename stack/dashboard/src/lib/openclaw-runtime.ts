@@ -111,8 +111,8 @@ const RUNTIME_CONFIG = `${SECRETS_ROOT}/default/.openclaw/openclaw.json`;
 const SOURCE_CONFIG = `${HOME_ROOT}/.openclaw/openclaw.json`;
 
 const DEFAULT_MODELS: Record<string, string> = {
-  openai: "openai-codex/gpt-5.3-codex",
-  anthropic: "anthropic/claude-opus-4-6",
+  openai: "openai-codex/gpt-5.5",
+  anthropic: "anthropic/claude-opus-4-8",
 };
 const RUNTIME_MODE = String(
   process.env.AIDEPLOY_AGENT_RUNTIME || process.env.AIDEPLOY_RUNTIME_MODE || "docker",

@@ -86,14 +86,14 @@ const MODEL_OPTIONS: Record<
   { value: string; label: string; note?: string }[]
 > = {
   openai: [
-    { value: "gpt-5.3-codex", label: "GPT-5.3 Codex", note: "OAuth" },
+    { value: "gpt-5.5", label: "GPT-5.5", note: "OAuth" },
     { value: "gpt-5.2", label: "GPT-5.2", note: "OAuth / API key" },
     { value: "gpt-5.1", label: "GPT-5.1", note: "OAuth / API key" },
     { value: "gpt-5-mini", label: "GPT-5 Mini", note: "API key only" },
     { value: "gpt-4o", label: "GPT-4o", note: "API key only" },
   ],
   anthropic: [
-    { value: "claude-opus-4-6", label: "Claude Opus 4.6" },
+    { value: "claude-opus-4-8", label: "Claude Opus 4.8" },
     { value: "claude-sonnet-4", label: "Claude Sonnet 4" },
   ],
   gemini: [

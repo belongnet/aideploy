@@ -116,7 +116,7 @@ class ClaudeSetupInstructionsTest(unittest.IsolatedAsyncioTestCase):
     async def test_provider_switch_reply_uses_browser_flow_and_proxy(self) -> None:
         config = SimpleNamespace(
             agent_name="Kyle",
-            model="gpt-5.3-codex",
+            model="gpt-5.5",
             model_provider=SimpleNamespace(value="openai"),
         )
 
@@ -133,7 +133,7 @@ class ClaudeSetupInstructionsTest(unittest.IsolatedAsyncioTestCase):
     async def test_infrastructure_context_explains_claude_proxy_constraints(self) -> None:
         config = SimpleNamespace(
             agent_name="Kyle",
-            model="gpt-5.3-codex",
+            model="gpt-5.5",
             model_provider=SimpleNamespace(value="openai"),
         )
 

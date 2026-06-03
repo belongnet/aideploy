@@ -1,8 +1,8 @@
 """
 OpenClaw Agent — LLM Client with 4 provider adapters + OAuth refresh.
 
-Supports: OpenAI (gpt-5.3-codex), Anthropic (Claude Opus 4.6),
-          Google Gemini (3 Deep Think), Moonshot Kimi (K2.5).
+Supports: OpenAI (gpt-5.5), Anthropic (Claude Opus 4.8),
+          Google Gemini (3 Deep Think), Moonshot Kimi (K2.6).
 
 OAuth tokens are auto-refreshed before expiry.
 API key flow is supported as a fallback for all providers.
@@ -188,7 +188,7 @@ class LLMAdapter(ABC):
 
 
 class OpenAIAdapter(LLMAdapter):
-    """Adapter for OpenAI / ChatGPT models (default: gpt-5.3-codex).
+    """Adapter for OpenAI / ChatGPT models (default: gpt-5.5).
 
     OAuth (ChatGPT subscription) → Responses API at chatgpt.com/backend-api
     API key                      → Chat Completions API at api.openai.com/v1
@@ -392,7 +392,7 @@ class OpenAIAdapter(LLMAdapter):
 
 
 class AnthropicAdapter(LLMAdapter):
-    """Adapter for Anthropic / Claude models (default: Opus 4.6)."""
+    """Adapter for Anthropic / Claude models (default: Opus 4.8)."""
 
     BASE_URL = "https://api.anthropic.com/v1"
 
@@ -602,7 +602,7 @@ class GeminiAdapter(LLMAdapter):
 
 
 class KimiAdapter(LLMAdapter):
-    """Adapter for Moonshot Kimi (default: K2.5). API key only.
+    """Adapter for Moonshot Kimi (default: K2.6). API key only.
     Uses OpenAI-compatible API format."""
 
     BASE_URL = "https://api.moonshot.cn/v1"

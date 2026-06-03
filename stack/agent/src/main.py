@@ -111,8 +111,8 @@ PROVIDER_LABELS = {
     "kimi": "Kimi",
 }
 CHAT_CONNECT_DEFAULT_MODELS = {
-    "openai": "gpt-5.3-codex",
-    "anthropic": "claude-opus-4-6",
+    "openai": "gpt-5.5",
+    "anthropic": "claude-opus-4-8",
 }
 SETUP_COMMANDS = {
     "connect chatgpt",

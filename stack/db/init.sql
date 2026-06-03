@@ -169,7 +169,7 @@ BEGIN
                             CHECK (model_provider IN (''openai'', ''anthropic'', ''gemini'', ''kimi'')),
             auth_method     TEXT NOT NULL DEFAULT ''oauth''
                             CHECK (auth_method IN (''oauth'', ''api_key'')),
-            model           TEXT NOT NULL DEFAULT ''gpt-5.3-codex'',
+            model           TEXT NOT NULL DEFAULT ''gpt-5.5'',
             system_prompt   TEXT NOT NULL DEFAULT ''You are a helpful AI assistant.'',
             agent_name      TEXT NOT NULL DEFAULT ''My Agent'',
             temperature     REAL NOT NULL DEFAULT 0.7,
