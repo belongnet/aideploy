@@ -14,6 +14,7 @@ export async function POST() {
   try {
     const store = await readAuthProfiles();
     const providerKeys: Record<string, string> = {
+      "openai:default": "openai",
       "openai-codex:default": "openai",
       "anthropic:default": "anthropic",
     };

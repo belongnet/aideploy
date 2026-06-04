@@ -87,10 +87,11 @@ const MODEL_OPTIONS: Record<
 > = {
   openai: [
     { value: "gpt-5.5", label: "GPT-5.5", note: "OAuth" },
+    { value: "gpt-5.4", label: "GPT-5.4", note: "OAuth / API key" },
+    { value: "gpt-5.4-mini", label: "GPT-5.4 Mini", note: "OAuth / API key" },
+    { value: "gpt-5.3-codex", label: "GPT-5.3 Codex", note: "OAuth / API key" },
     { value: "gpt-5.2", label: "GPT-5.2", note: "OAuth / API key" },
     { value: "gpt-5.1", label: "GPT-5.1", note: "OAuth / API key" },
-    { value: "gpt-5-mini", label: "GPT-5 Mini", note: "API key only" },
-    { value: "gpt-4o", label: "GPT-4o", note: "API key only" },
   ],
   anthropic: [
     { value: "claude-opus-4-8", label: "Claude Opus 4.8" },

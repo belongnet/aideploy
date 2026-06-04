@@ -62,7 +62,9 @@ function inferModelProvider(model: string): string {
   if (!normalized) return "";
   if (
     normalized.startsWith("openai-codex/") ||
-    normalized.startsWith("openai/")
+    normalized.startsWith("openai/") ||
+    normalized.startsWith("codex/") ||
+    normalized.startsWith("codex-cli/")
   ) {
     return "openai";
   }

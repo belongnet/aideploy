@@ -67,7 +67,7 @@ const PROVIDER_CONNECT_CONFIG: Record<
   }
 > = {
   openai: {
-    providerId: "openai-codex",
+    providerId: "openai",
     libraryExport: "loginOpenAICodex",
     providerExport: "openaiCodexOAuthProvider",
     inputLabel: "Paste the full localhost URL or code from your browser",

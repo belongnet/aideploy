@@ -111,7 +111,7 @@ const RUNTIME_CONFIG = `${SECRETS_ROOT}/default/.openclaw/openclaw.json`;
 const SOURCE_CONFIG = `${HOME_ROOT}/.openclaw/openclaw.json`;
 
 const DEFAULT_MODELS: Record<string, string> = {
-  openai: "openai-codex/gpt-5.5",
+  openai: "openai/gpt-5.5",
   anthropic: "anthropic/claude-opus-4-8",
 };
 const RUNTIME_MODE = String(
@@ -178,8 +178,22 @@ function inferModelProvider(model: string): string {
   const raw = model.trim().toLowerCase();
   if (!raw) return "";
   const provider = raw.split("/", 1)[0]?.trim() ?? "";
-  if (provider === "openai-codex") return "openai";
+  if (provider === "openai-codex" || provider === "codex" || provider === "codex-cli") {
+    return "openai";
+  }
   return provider;
+}
+
+function normalizeModelRef(model: string): string {
+  const value = String(model || "").trim();
+  if (!value) return "";
+  const lower = value.toLowerCase();
+  for (const prefix of ["openai-codex/", "codex/", "codex-cli/"]) {
+    if (lower.startsWith(prefix)) {
+      return `openai/${value.slice(prefix.length)}`;
+    }
+  }
+  return value;
 }
 
 function normalizeAuthType(value: unknown): string {
@@ -491,11 +505,23 @@ export async function ensureModelForProvider(
   const agents = (config.agents ?? {}) as Record<string, unknown>;
   const defaults = (agents.defaults ?? {}) as Record<string, unknown>;
   const model = (defaults.model ?? {}) as Record<string, unknown>;
-  const current = typeof model.primary === "string" ? model.primary : "";
+  const current = typeof model.primary === "string" ? normalizeModelRef(model.primary) : "";
 
   // Already has a model matching this provider
-  if (current && current.includes(provider)) return false;
-  if (provider === "openai" && current.includes("openai")) return false;
+  if (current && inferModelProvider(current) === provider) {
+    if (current === model.primary) return false;
+    await writeOpenClawConfig({
+      ...config,
+      agents: {
+        ...agents,
+        defaults: {
+          ...defaults,
+          model: { ...model, primary: current },
+        },
+      },
+    });
+    return true;
+  }
 
   const target = DEFAULT_MODELS[provider];
   if (!target) return false;
