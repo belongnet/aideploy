@@ -727,14 +727,15 @@ class TelegramSetupManager:
         label = self._provider_label(provider)
         url = str(snapshot.get("url") or "")
         if provider == "openai":
-            paste_help = "After ChatGPT redirects to localhost, copy the full localhost URL or code and paste it back in this chat."
+            paste_help = "After ChatGPT redirects to localhost, copy the full localhost URL or code from that browser and paste it back in this chat."
         else:
-            paste_help = "After Claude finishes, copy the code or redirect URL and paste it back in this chat."
+            paste_help = "After Claude finishes, copy the code or redirect URL from that browser and paste it back in this chat."
 
         return (
             f"Connect {label} in your browser:\n{url}\n\n"
-            f"Tap \"Open Login\" below to open in your browser. "
-            f"On mobile, if login doesn\u2019t load, tap \u22ee \u2192 Open in Safari/Chrome.\n\n"
+            "Copy this sign-in link into Safari, Chrome, or your normal desktop browser. "
+            "Do not open it inside Telegram. Messenger browsers cannot finish this login, "
+            "and ChatGPT's final localhost URL will not appear there.\n\n"
             f"{paste_help}\n\n"
             f"If you want another provider, open {setup_status.get('dashboardSetupUrl', '')}."
         )
@@ -778,8 +779,6 @@ class TelegramSetupManager:
 
     def _provider_keyboard(self, setup_url: str, oauth_url: str = "") -> dict[str, Any]:
         keyboard: list[list[dict[str, Any]]] = []
-        if oauth_url:
-            keyboard.append([{"text": "Open Login \u2197", "url": oauth_url}])
         keyboard.append([{"text": "Cancel", "callback_data": CANCEL_CALLBACK}])
         if setup_url:
             keyboard.append([{"text": "Open Dashboard", "url": setup_url}])

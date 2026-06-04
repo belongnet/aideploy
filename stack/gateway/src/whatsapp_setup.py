@@ -535,12 +535,15 @@ class WhatsAppSetupManager:
         label = self._provider_label(provider)
         url = str(snapshot.get("url") or "")
         if provider == "openai":
-            paste_help = "After ChatGPT redirects to localhost, copy the full localhost URL or code and paste it back in this chat."
+            paste_help = "After ChatGPT redirects to localhost, copy the full localhost URL or code from that browser and paste it back in this chat."
         else:
-            paste_help = "After Claude finishes, copy the code or redirect URL and paste it back in this chat."
+            paste_help = "After Claude finishes, copy the code or redirect URL from that browser and paste it back in this chat."
 
         return (
             f"Connect {label} in your browser:\n{url}\n\n"
+            "Copy this sign-in link into Safari, Chrome, or your normal desktop browser. "
+            "Do not open it inside WhatsApp. Messenger browsers cannot finish this login, "
+            "and ChatGPT's final localhost URL will not appear there.\n\n"
             f"{paste_help}"
         )
 
