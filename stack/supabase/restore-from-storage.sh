@@ -22,8 +22,17 @@ SUPABASE_COMPOSE_FILE="${SUPABASE_RESTORE_SUPABASE_COMPOSE_FILE:-/home/aideploy/
 SUPABASE_COMPOSE_ENV_FILE="${SUPABASE_RESTORE_SUPABASE_ENV_FILE:-/home/aideploy/runtime/supabase/.env}"
 SUPABASE_PROJECT="${AIDEPLOY_SUPABASE_PROJECT:-aideploy-supabase}"
 DEFAULT_COMPOSE_FILE="${SUPABASE_RESTORE_DEFAULT_COMPOSE_FILE:-/home/aideploy/runtime/default/docker-compose.yml}"
-DEFAULT_COMPOSE_ENV_FILE="${SUPABASE_RESTORE_DEFAULT_ENV_FILE:-/etc/aideploy/dashboard.env}"
+DEFAULT_COMPOSE_ENV_FILE="${SUPABASE_RESTORE_DEFAULT_ENV_FILE:-/etc/aideploy/runtime-default.env}"
 DEFAULT_PROJECT="${AIDEPLOY_DEFAULT_PROJECT:-openclaw-gateway}"
+# Runtime gateway endpoints. OpenClaw runs the gateway as a Docker service that
+# the dashboard reaches over the runtime network, so the defaults are overridden
+# by the dashboard env (e.g. http://openclaw-gateway:18789). Hermes runs its
+# gateway as a host systemd service bound to loopback.
+OPENCLAW_INTERNAL_URL="${AIDEPLOY_OPENCLAW_INTERNAL_URL:-http://127.0.0.1:18789}"
+OPENCLAW_INTERNAL_HTTPS_URL="${AIDEPLOY_OPENCLAW_INTERNAL_HTTPS_URL:-https://127.0.0.1:18790}"
+HERMES_GATEWAY_SERVICE="${AIDEPLOY_HERMES_GATEWAY_SERVICE:-hermes-gateway}"
+HERMES_GATEWAY_UNIT="/etc/systemd/system/${HERMES_GATEWAY_SERVICE}.service"
+HERMES_API_HEALTH_URL="${AIDEPLOY_HERMES_API_HEALTH_URL:-http://127.0.0.1:8642/health}"
 TARGET_URL="${SUPABASE_BACKUP_TARGET_URL:-${SUPABASE_URL:-${SUPABASE_PUBLIC_URL:-http://127.0.0.1:8000}}}"
 SERVICE_ROLE_KEY="${SUPABASE_BACKUP_SERVICE_ROLE_KEY:-${SUPABASE_SERVICE_ROLE_KEY:-${AIDEPLOY_SUPABASE_SERVICE_ROLE_KEY:-}}}"
 BACKUP_REGION="${SUPABASE_BACKUP_REGION:-${AWS_REGION:-${AWS_DEFAULT_REGION:-}}}"
@@ -425,6 +434,57 @@ restart_runtime_services() {
     default_compose up -d --remove-orphans openclaw anthropic-billing-proxy >/dev/null || true
     default_compose restart openclaw anthropic-billing-proxy >/dev/null || true
   fi
+
+  # Hermes runs its gateway as a host systemd service; restart it so it
+  # reconnects to the freshly restored Supabase database.
+  if [ -f "$HERMES_GATEWAY_UNIT" ] && command -v systemctl >/dev/null 2>&1; then
+    echo "[aideploy] Restarting Hermes gateway service"
+    systemctl restart "$HERMES_GATEWAY_SERVICE" >/dev/null 2>&1 || true
+  fi
+}
+
+verify_openclaw_health() {
+  if [ ! -f "$DEFAULT_COMPOSE_FILE" ] || [ ! -f "$DEFAULT_COMPOSE_ENV_FILE" ]; then
+    echo "[aideploy] OpenClaw runtime compose/env not present; skipping OpenClaw health verification"
+    return 0
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    fail "curl is required to verify OpenClaw health after restore"
+  fi
+  echo "[aideploy] Verifying OpenClaw runtime health"
+  local attempt
+  for attempt in $(seq 1 30); do
+    if curl -fsS --max-time 3 "$OPENCLAW_INTERNAL_URL" >/dev/null 2>&1; then
+      return 0
+    fi
+    if curl -ksS --max-time 3 "${OPENCLAW_INTERNAL_HTTPS_URL%/}/" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  default_compose ps openclaw || true
+  fail "OpenClaw runtime did not become healthy after restore"
+}
+
+verify_hermes_health() {
+  if [ ! -f "$HERMES_GATEWAY_UNIT" ]; then
+    return 0
+  fi
+  if ! command -v curl >/dev/null 2>&1; then
+    fail "curl is required to verify Hermes gateway health after restore"
+  fi
+  echo "[aideploy] Verifying Hermes gateway health"
+  local attempt
+  for attempt in $(seq 1 30); do
+    if curl -fsS --max-time 3 "$HERMES_API_HEALTH_URL" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  if command -v journalctl >/dev/null 2>&1; then
+    journalctl -u "$HERMES_GATEWAY_SERVICE" --no-pager -n 120 || true
+  fi
+  fail "Hermes gateway did not become healthy after restore"
 }
 
 if [ -z "$RUN_ID" ]; then
@@ -528,6 +588,8 @@ restart_runtime_services
 
 echo "[aideploy] Verifying restored database health"
 supabase_compose exec -T supabase-db pg_isready -h 127.0.0.1 -U postgres >/dev/null
+verify_openclaw_health
+verify_hermes_health
 
 write_restore_status "completed" "Full production overwrite restore completed."
 echo "[aideploy] Full production overwrite restore completed for $RUN_ID"
