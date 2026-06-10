@@ -124,6 +124,7 @@ ASSISTANT_SETUP_PHRASES = (
     "open this link to sign in to chatgpt",
     "paste the final redirect url back here",
     "paste the localhost redirect url or code",
+    "paste the chatgpt sign-in code",
     "paste the claude redirect url or one-time code",
     "chatgpt is now connected.",
     "claude is now connected.",
@@ -488,7 +489,7 @@ async def _build_ai_connect_instructions(provider: str) -> str:
                 f"1. Open {setup_url}",
                 '2. Press "New Browser Link" under ChatGPT',
                 "3. Sign in in your browser on your own device",
-                "4. Paste the localhost redirect URL or code back into the setup card",
+                "4. Paste the ChatGPT sign-in code back into the setup card. A full localhost URL also works as a fallback.",
                 "5. Return here and send your message again",
             ]
         )
