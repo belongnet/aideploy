@@ -278,6 +278,8 @@ export default function SecurityPage() {
           const configStatus = kmsConfig?.providers[providerId];
           const fields = kmsConfig?.fields[providerId] ?? [];
           const isConfigured = providerStatus?.configured ?? false;
+          const isSelected = providerStatus?.selected ?? false;
+          const isCloudNative = providerStatus?.cloudNative ?? false;
           const isExpanded = expandedProvider === providerId;
           const showingInstructions = showInstructions === providerId;
 
@@ -286,6 +288,8 @@ export default function SecurityPage() {
               key={providerId}
               meta={meta}
               isConfigured={isConfigured}
+              isSelected={isSelected}
+              isCloudNative={isCloudNative}
               configStatus={configStatus}
               fields={fields}
               isExpanded={isExpanded}
@@ -396,6 +400,8 @@ export default function SecurityPage() {
 function ProviderCard({
   meta,
   isConfigured,
+  isSelected,
+  isCloudNative,
   configStatus,
   fields,
   isExpanded,
@@ -406,6 +412,8 @@ function ProviderCard({
 }: {
   meta: ProviderMeta;
   isConfigured: boolean;
+  isSelected: boolean;
+  isCloudNative: boolean;
   configStatus?: {
     configured: boolean;
     source: string;
@@ -485,6 +493,11 @@ function ProviderCard({
               <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-700">
                 <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
                 Connected
+              </span>
+            )}
+            {isSelected && (
+              <span className="inline-flex items-center rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-700">
+                {isCloudNative ? "Selected cloud vault" : "Selected"}
               </span>
             )}
             {configStatus?.source === "environment" && isConfigured && (

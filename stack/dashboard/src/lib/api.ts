@@ -613,11 +613,21 @@ export interface SecretProviderInfo {
   id: "env" | "doppler" | "aws-sm" | "gcp-sm" | "azure-kv";
   name: string;
   configured: boolean;
+  selected?: boolean;
+  cloudNative?: boolean;
 }
 
 /** List which KMS providers are configured */
 export const fetchSecretProviders = () =>
-  request<{ providers: SecretProviderInfo[] }>(
+  request<{
+    providers: SecretProviderInfo[];
+    secretManagement?: {
+      selection: string;
+      effectiveProvider: string;
+      cloudNativeProvider: string | null;
+      supportedProviders: string[];
+    };
+  }>(
     "/dashboard-api/secrets/providers",
   );
 
