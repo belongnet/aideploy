@@ -346,6 +346,46 @@ export const updateAutonomy = (autonomousMode: boolean) =>
     body: JSON.stringify({ autonomousMode }),
   });
 
+/* ------------------------------------------------------------------ */
+/*  Review queue (event-workflow approvals + autonomy)                 */
+/* ------------------------------------------------------------------ */
+
+export interface ReviewItemDTO {
+  id: string;
+  workflowPackId: string;
+  itemType: string;
+  source: { channel: string; reference: string; sender?: string; receivedAt?: string };
+  extractedFacts: string[];
+  missingContext: string[];
+  draft: string;
+  riskFlags: string[];
+  owner: string;
+  approvalReason: string;
+  status: string;
+  autonomy?: {
+    tier?: string;
+    actionTier?: string | null;
+    reason?: string;
+    downgradedFrom?: string | null;
+    actionId?: string;
+  };
+  decidedAt?: string | null;
+  decisionNote?: string | null;
+}
+
+export const fetchReviewQueue = () =>
+  request<{ version: number; items: ReviewItemDTO[] }>("/dashboard-api/review");
+
+export const actOnReviewItem = (
+  id: string,
+  action: "approve" | "reject" | "revise" | "confirm" | "undo",
+  note?: string,
+) =>
+  request<{ ok: boolean; item: ReviewItemDTO }>("/dashboard-api/review", {
+    method: "POST",
+    body: JSON.stringify({ id, action, note }),
+  });
+
 export const pruneNow = () =>
   request<{ deleted: number }>("/api/conversations/prune", { method: "POST" });
 

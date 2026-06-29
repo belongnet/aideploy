@@ -114,6 +114,26 @@ const NAV_ITEMS = [
     ),
   },
   {
+    href: "/review",
+    label: "Review",
+    subtitle: "Approve what your agent drafted",
+    icon: (active: boolean) => (
+      <svg
+        className={`h-5 w-5 ${active ? "text-brand-600" : "text-gray-500"}`}
+        fill="none"
+        viewBox="0 0 24 24"
+        strokeWidth={1.5}
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M9 12.75l1.5 1.5 3-3.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+        />
+      </svg>
+    ),
+  },
+  {
     href: "/tasks",
     label: "Tasks",
     subtitle: "",
