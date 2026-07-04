@@ -2,18 +2,99 @@
 set -Eeuo pipefail
 
 ENV_FILE="${AIDEPLOY_SUPABASE_ENV_FILE:-/etc/aideploy/supabase.env}"
-if [ -f "$ENV_FILE" ]; then
-  set -a
-  # shellcheck disable=SC1090
-  . "$ENV_FILE"
-  set +a
+load_safe_env_exports() {
+  local env_file="$1"
+  [ -f "$env_file" ] || return 0
+
+  python3 - "$env_file" <<'PY'
+import re
+import shlex
+import sys
+
+allowed_keys = {
+    "AIDEPLOY_CLOUD_PROVIDER",
+    "AIDEPLOY_DEFAULT_PROJECT",
+    "AIDEPLOY_HERMES_API_HEALTH_URL",
+    "AIDEPLOY_HERMES_GATEWAY_SERVICE",
+    "AIDEPLOY_OPENCLAW_INTERNAL_HTTPS_URL",
+    "AIDEPLOY_OPENCLAW_INTERNAL_URL",
+    "AIDEPLOY_RUNTIME_CONTRACT_FILE",
+    "AIDEPLOY_SUPABASE_PROJECT",
+    "AIDEPLOY_SUPABASE_SERVICE_ROLE_KEY",
+    "DB_PASSWORD",
+    "DEPLOY_ID",
+    "JWT_SECRET",
+    "POSTGRES_PASSWORD",
+    "REALTIME_DB_ENC_KEY",
+    "SUPABASE_ANON_KEY",
+    "SUPABASE_BACKUP_REGION",
+    "SUPABASE_BACKUP_SERVICE_ROLE_KEY",
+    "SUPABASE_BACKUP_STATE_DIR",
+    "SUPABASE_BACKUP_TARGET_URL",
+    "SUPABASE_PUBLIC_URL",
+    "SUPABASE_RESTORE_ALLOW_PRODUCTION_OVERWRITE",
+    "SUPABASE_RESTORE_DEFAULT_COMPOSE_FILE",
+    "SUPABASE_RESTORE_DEFAULT_ENV_FILE",
+    "SUPABASE_RESTORE_LOG_FILE",
+    "SUPABASE_RESTORE_MODE",
+    "SUPABASE_RESTORE_REQUEST_FILE",
+    "SUPABASE_RESTORE_REQUEST_ID",
+    "SUPABASE_RESTORE_RUN_ID",
+    "SUPABASE_RESTORE_SUPABASE_COMPOSE_FILE",
+    "SUPABASE_RESTORE_SUPABASE_ENV_FILE",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "SUPABASE_URL",
+}
+aliases = {
+    "ANON_KEY": "SUPABASE_ANON_KEY",
+    "SERVICE_ROLE_KEY": "SUPABASE_SERVICE_ROLE_KEY",
+}
+key_re = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    for raw_line in handle:
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
+        key, raw_value = line.split("=", 1)
+        key = aliases.get(key.strip(), key.strip())
+        if key not in allowed_keys or not key_re.fullmatch(key):
+            continue
+        try:
+            parts = shlex.split(raw_value.strip(), posix=True)
+        except ValueError as exc:
+            print(f"[aideploy] ERROR: Invalid shell value for {key}: {exc}", file=sys.stderr)
+            sys.exit(1)
+        value = " ".join(parts) if parts else ""
+        print(f"export {key}={shlex.quote(value)}")
+PY
+}
+
+if ! SAFE_ENV_EXPORTS="$(load_safe_env_exports "$ENV_FILE")"; then
+  echo "[aideploy] ERROR: Failed to safely load $ENV_FILE" >&2
+  exit 1
 fi
+eval "$SAFE_ENV_EXPORTS"
 
 RUN_ID="${SUPABASE_RESTORE_RUN_ID:-${1:-}}"
 MODE="${SUPABASE_RESTORE_MODE:-full}"
 ALLOW_OVERWRITE="${SUPABASE_RESTORE_ALLOW_PRODUCTION_OVERWRITE:-false}"
 STATE_DIR="${SUPABASE_BACKUP_STATE_DIR:-/var/lib/aideploy/backups}"
 RESTORE_ID="${SUPABASE_RESTORE_REQUEST_ID:-restore-$(date -u +%Y%m%dT%H%M%SZ)}"
+if [ -z "$RUN_ID" ]; then
+  echo "[aideploy] ERROR: Backup run id is required" >&2
+  exit 1
+fi
+if [[ ! "$RUN_ID" =~ ^[A-Za-z0-9._-]{1,128}$ ]]; then
+  echo "[aideploy] ERROR: Backup run id contains unsafe characters" >&2
+  exit 1
+fi
+if [[ ! "$RESTORE_ID" =~ ^[A-Za-z0-9._-]{1,128}$ ]]; then
+  echo "[aideploy] ERROR: Restore request id contains unsafe characters" >&2
+  exit 1
+fi
 RESTORE_RECORD="${SUPABASE_RESTORE_REQUEST_FILE:-$STATE_DIR/restore-runs/${RESTORE_ID}.json}"
 RESTORE_LOG="${SUPABASE_RESTORE_LOG_FILE:-$STATE_DIR/restore-runs/${RESTORE_ID}.log}"
 RUN_RECORD="$STATE_DIR/runs/${RUN_ID}.json"
@@ -206,6 +287,59 @@ artifact_sha256() {
   else
     shasum -a 256 "$1" | awk '{print $1}'
   fi
+}
+
+validate_artifact_name() {
+  local name="$1"
+  if [[ ! "$name" =~ ^[A-Za-z0-9._-]{1,128}$ ]]; then
+    fail "Backup artifact contains unsafe name: $name"
+  fi
+}
+
+runtime_path_allowed() {
+  local name="$1"
+  local root
+  for root in \
+    home/aideploy/.openclaw \
+    home/aideploy/.hermes \
+    home/aideploy/runtime-secrets \
+    home/aideploy/runtime/default \
+    home/aideploy/runtime/plugins \
+    home/aideploy/runtime/open-webui/data \
+    home/aideploy/workspace; do
+    if [ "$name" = "$root" ] || [[ "$name" == "$root/"* ]]; then
+      return 0
+    fi
+  done
+  [ "$name" = "etc/aideploy/supabase.env" ]
+}
+
+validate_tar_archive() {
+  local archive="$1"
+  local purpose="$2"
+  local name
+  tar -tvzf "$archive" | awk '$1 !~ /^[-d]/ { exit 1 }' || fail "$purpose archive contains unsupported special entry"
+  while IFS= read -r name; do
+    name="${name#./}"
+    case "$name" in
+      ""|".") [ "$purpose" = "storage" ] && continue || fail "$purpose archive contains empty path" ;;
+      /*|*\\*|".."|../*|*/../*|*/..) fail "$purpose archive contains unsafe path: $name" ;;
+    esac
+    if [ "$purpose" = "runtime" ] && ! runtime_path_allowed "$name"; then
+      fail "runtime archive contains unsupported path: $name"
+    fi
+  done < <(tar -tzf "$archive")
+}
+
+validate_remote_path() {
+  local remote_path="$1"
+  case "$remote_path" in
+    ""|/*|*\\*|".."|../*|*/../*|*/..) fail "Backup artifact contains unsafe remotePath: $remote_path" ;;
+  esac
+  case "$remote_path" in
+    "$ARCHIVE_ROOT"/*) ;;
+    *) fail "Backup artifact remotePath escapes archive root: $remote_path" ;;
+  esac
 }
 
 download_supabase_object() {
@@ -412,6 +546,7 @@ restore_storage_volume() {
   local storage_root="$TMP_DIR/storage-root"
   echo "[aideploy] Overwriting Supabase Storage volume from $storage_file"
   mkdir -p "$storage_root"
+  validate_tar_archive "$storage_file" "storage"
   tar -xzf "$storage_file" -C "$storage_root"
   supabase_compose up -d supabase-storage >/dev/null
   docker exec supabase-storage sh -c 'find /var/lib/storage -mindepth 1 -maxdepth 1 -exec rm -rf {} +'
@@ -421,6 +556,7 @@ restore_storage_volume() {
 restore_runtime_files() {
   local runtime_file="$1"
   echo "[aideploy] Overwriting runtime files from $runtime_file"
+  validate_tar_archive "$runtime_file" "runtime"
   tar -xzf "$runtime_file" -C /
 }
 
@@ -443,6 +579,22 @@ restart_runtime_services() {
   fi
 }
 
+https_probe_allows_insecure() {
+  case "$1" in
+    https://localhost:*|https://127.*|https://100.6[4-9].*|https://100.[7-9][0-9].*|https://100.1[0-1][0-9].*|https://100.12[0-7].*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+curl_openclaw_https_health() {
+  local probe_url="$1"
+  if https_probe_allows_insecure "$probe_url"; then
+    curl -kfsS --max-time 3 "$probe_url"
+  else
+    curl -fsS --max-time 3 "$probe_url"
+  fi
+}
+
 verify_openclaw_health() {
   if [ ! -f "$DEFAULT_COMPOSE_FILE" ] || [ ! -f "$DEFAULT_COMPOSE_ENV_FILE" ]; then
     echo "[aideploy] OpenClaw runtime compose/env not present; skipping OpenClaw health verification"
@@ -457,7 +609,7 @@ verify_openclaw_health() {
     if curl -fsS --max-time 3 "$OPENCLAW_INTERNAL_URL" >/dev/null 2>&1; then
       return 0
     fi
-    if curl -ksS --max-time 3 "${OPENCLAW_INTERNAL_HTTPS_URL%/}/" >/dev/null 2>&1; then
+    if curl_openclaw_https_health "${OPENCLAW_INTERNAL_HTTPS_URL%/}/" >/dev/null 2>&1; then
       return 0
     fi
     sleep 2
@@ -487,9 +639,6 @@ verify_hermes_health() {
   fail "Hermes gateway did not become healthy after restore"
 }
 
-if [ -z "$RUN_ID" ]; then
-  fail "Backup run id is required"
-fi
 if [ "$MODE" != "full" ]; then
   fail "Dashboard production overwrite restore only supports full backups"
 fi
@@ -522,6 +671,12 @@ MANIFEST_MODE="$(manifest_field mode)"
 if [ "$MANIFEST_MODE" != "full" ]; then
   fail "Full production overwrite restore requires a full backup manifest"
 fi
+MANIFEST_PREFIX="$(manifest_field prefix)"
+MANIFEST_TIMESTAMP="$(manifest_field timestamp)"
+if [ -z "$MANIFEST_PREFIX" ] || [ -z "$MANIFEST_TIMESTAMP" ]; then
+  fail "Backup manifest is missing prefix or timestamp"
+fi
+ARCHIVE_ROOT="${MANIFEST_PREFIX}/${MANIFEST_MODE}/${MANIFEST_TIMESTAMP}"
 NATIVE_PROVIDER="$(manifest_field nativeProvider)"
 if [ -z "$NATIVE_PROVIDER" ] || [ "$NATIVE_PROVIDER" = "cloud-native" ] || [ "$NATIVE_PROVIDER" = "native" ]; then
   NATIVE_PROVIDER="$(manifest_field provider)"
@@ -542,7 +697,9 @@ runtime_file=""
 echo "[aideploy] Downloading restore artifacts for $RUN_ID from $NATIVE_PROVIDER/$NATIVE_BUCKET"
 while IFS=$'\t' read -r name type sha256 _bytes remote_path; do
   [ -n "$name" ] || continue
+  validate_artifact_name "$name"
   [ -n "$remote_path" ] || fail "Artifact $name is missing remotePath"
+  validate_remote_path "$remote_path"
   output_path="$ARTIFACT_DIR/$name"
   download_object "$NATIVE_PROVIDER" "$NATIVE_BUCKET" "$remote_path" "$output_path"
   actual_sha256="$(artifact_sha256 "$output_path")"

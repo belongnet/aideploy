@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 
 import { agentRequest } from "@/lib/agent-server-api";
 import { gatewayRequest } from "@/lib/gateway-server-api";
-import { configureTelegramOwnerPrivilegedAccess } from "@/lib/openclaw-runtime";
+import {
+  configureTelegramOwnerPrivilegedAccess,
+  isTelegramPrivateChatId,
+} from "@/lib/openclaw-runtime";
+import { readJsonBody, requestBodyErrorResponse } from "@/lib/request-body";
 
 interface AgentChannel {
   id: string;
@@ -22,12 +26,12 @@ function normalizeString(value: unknown): string {
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as {
+    const body = await readJsonBody<{
       token?: string;
       ownerChatId?: string;
       ownerUserId?: string;
       name?: string;
-    };
+    }>(request);
     const token = normalizeString(body.token);
     const ownerChatId = normalizeString(body.ownerChatId);
     const ownerUserId = normalizeString(body.ownerUserId) || ownerChatId;
@@ -42,6 +46,12 @@ export async function POST(request: Request) {
     if (!ownerChatId) {
       return NextResponse.json(
         { error: "Telegram owner chat ID is required" },
+        { status: 400 },
+      );
+    }
+    if (!isTelegramPrivateChatId(ownerChatId)) {
+      return NextResponse.json(
+        { error: "Telegram owner chat ID must be a private numeric chat ID" },
         { status: 400 },
       );
     }
@@ -108,6 +118,9 @@ export async function POST(request: Request) {
       promptResult,
     });
   } catch (error) {
+    const bodyError = requestBodyErrorResponse(error);
+    if (bodyError) return bodyError;
+
     return NextResponse.json(
       {
         error:

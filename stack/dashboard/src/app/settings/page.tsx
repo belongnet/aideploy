@@ -64,6 +64,7 @@ export default function SettingsPage() {
 
   /* Maintenance patch */
   const [patchScript, setPatchScript] = useState("");
+  const [maintenanceToken, setMaintenanceToken] = useState("");
   const [patchOutput, setPatchOutput] = useState<string | null>(null);
   const [patchOk, setPatchOk] = useState<boolean | null>(null);
   const [patchRunning, setPatchRunning] = useState(false);
@@ -160,7 +161,7 @@ export default function SettingsPage() {
     setPatchOk(null);
     setPatchConfirm(false);
     try {
-      const result = await runPatch(patchScript);
+      const result = await runPatch(patchScript, maintenanceToken.trim());
       setPatchOutput(result.output);
       setPatchOk(result.ok);
     } catch (err: unknown) {
@@ -478,6 +479,20 @@ export default function SettingsPage() {
           If support gives you a fix to apply, paste it here and press Run.
         </p>
 
+        <input
+          value={maintenanceToken}
+          onChange={(e) => {
+            setMaintenanceToken(e.target.value);
+            setPatchConfirm(false);
+            setPatchOutput(null);
+            setPatchOk(null);
+          }}
+          type="password"
+          placeholder="Maintenance token"
+          className="input-field"
+          autoComplete="off"
+        />
+
         <textarea
           value={patchScript}
           onChange={(e) => {
@@ -495,7 +510,7 @@ export default function SettingsPage() {
         {!patchConfirm ? (
           <button
             onClick={() => setPatchConfirm(true)}
-            disabled={!patchScript.trim() || patchRunning}
+            disabled={!patchScript.trim() || !maintenanceToken.trim() || patchRunning}
             className="inline-flex items-center justify-center rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-2.5 text-sm font-medium text-yellow-700 shadow-sm transition hover:bg-yellow-100 disabled:opacity-50 disabled:cursor-not-allowed min-h-touch"
           >
             Run Patch

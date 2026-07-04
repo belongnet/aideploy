@@ -56,12 +56,19 @@ write_files:
 
       # ── Install Tailscale ──────────────────────────────────
       echo "[openclaw] Installing Tailscale..."
-      curl -fsSL https://tailscale.com/install.sh | sh
+      UBUNTU_CODENAME="$(. /etc/os-release && echo "$VERSION_CODENAME")"
+      install -m 0755 -d /usr/share/keyrings
+      curl -fsSL "https://pkgs.tailscale.com/stable/ubuntu/$UBUNTU_CODENAME.noarmor.gpg" \
+        -o /usr/share/keyrings/tailscale-archive-keyring.gpg
+      curl -fsSL "https://pkgs.tailscale.com/stable/ubuntu/$UBUNTU_CODENAME.tailscale-keyring.list" \
+        -o /etc/apt/sources.list.d/tailscale.list
+      apt-get update -qq
+      apt-get install -y -qq tailscale
       tailscale up --authkey="$TAILSCALE_AUTH_KEY" --hostname="openclaw-server"
 
       # Wait for Tailscale IP
       for i in $(seq 1 30); do
-        TS_IP=$(tailscale ip -4 2>/dev/null || true)
+        TS_IP=$(tailscale ip -4 2>/dev/null | head -n 1 || true)
         if [ -n "$TS_IP" ]; then
           echo "[openclaw] Tailscale IP: $TS_IP"
           break
@@ -79,15 +86,30 @@ write_files:
 
       # Write environment file
       umask 077
-      cat > /opt/openclaw/runtime-secrets.env <<ENVEOF
-      DEPLOY_ID=$DEPLOY_ID
-      DB_PASSWORD=$DB_PASSWORD
-      ENCRYPTION_KEY=$ENCRYPTION_KEY
-      AGENT_SERVICE_TOKEN=$ENCRYPTION_KEY
-      SUPABASE_JWT_SECRET=$ENCRYPTION_KEY
-      TAILSCALE_IP=$TS_IP
-      AGENT_COUNT=$AGENT_COUNT
-      ENVEOF
+      write_env_line() {
+        local key="$1"
+        local value="$2"
+
+        case "$key" in
+          "" | *[!A-Z0-9_]*)
+            echo "[openclaw] ERROR: Refusing to write invalid env key: $key" >&2
+            return 1
+            ;;
+        esac
+
+        printf "%s=" "$key"
+        printf "'%s'" "$(printf "%s" "$value" | sed "s/'/'\\\\''/g")"
+        printf "\n"
+      }
+      {
+        write_env_line DEPLOY_ID "$DEPLOY_ID"
+        write_env_line DB_PASSWORD "$DB_PASSWORD"
+        write_env_line ENCRYPTION_KEY "$ENCRYPTION_KEY"
+        write_env_line AGENT_SERVICE_TOKEN "$ENCRYPTION_KEY"
+        write_env_line SUPABASE_JWT_SECRET "$ENCRYPTION_KEY"
+        write_env_line TAILSCALE_IP "$TS_IP"
+        write_env_line AGENT_COUNT "$AGENT_COUNT"
+      } > /opt/openclaw/runtime-secrets.env
       chmod 600 /opt/openclaw/runtime-secrets.env
 
       # Signal readiness
@@ -101,14 +123,55 @@ write_files:
       set -euo pipefail
 
       cd /opt/openclaw/stack
-      set -a
-      source /opt/openclaw/runtime-secrets.env
-      set +a
-      : "${DEPLOY_ID:?DEPLOY_ID is required}"
-      : "${DB_PASSWORD:?DB_PASSWORD is required}"
-      : "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
-      : "${AGENT_SERVICE_TOKEN:?AGENT_SERVICE_TOKEN is required}"
-      : "${AGENT_COUNT:?AGENT_COUNT is required}"
+      load_runtime_secret_exports() {
+        python3 - /opt/openclaw/runtime-secrets.env <<'PY'
+      import re
+      import shlex
+      import sys
+
+      allowed_keys = {
+          "AGENT_COUNT",
+          "AGENT_SERVICE_TOKEN",
+          "DB_HOST",
+          "DB_PASSWORD",
+          "DB_PORT",
+          "DEPLOY_ID",
+          "ENCRYPTION_KEY",
+          "SUPABASE_JWT_SECRET",
+          "TAILSCALE_IP",
+      }
+      key_re = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+
+      with open(sys.argv[1], "r", encoding="utf-8") as handle:
+          for raw_line in handle:
+              line = raw_line.strip()
+              if not line or line.startswith("#") or "=" not in line:
+                  continue
+              if line.startswith("export "):
+                  line = line[len("export "):].lstrip()
+              key, raw_value = line.split("=", 1)
+              key = key.strip()
+              if key not in allowed_keys or not key_re.fullmatch(key):
+                  continue
+              try:
+                  parts = shlex.split(raw_value.strip(), posix=True)
+              except ValueError as exc:
+                  print(f"[openclaw] ERROR: Invalid shell value for {key}: {exc}", file=sys.stderr)
+                  sys.exit(1)
+              value = " ".join(parts) if parts else ""
+              print(f"export {key}={shlex.quote(value)}")
+      PY
+      }
+      if ! RUNTIME_SECRET_EXPORTS="$(load_runtime_secret_exports)"; then
+        echo "[openclaw] ERROR: Failed to safely load /opt/openclaw/runtime-secrets.env" >&2
+        exit 1
+      fi
+      eval "$RUNTIME_SECRET_EXPORTS"
+      : "$${DEPLOY_ID:?DEPLOY_ID is required}"
+      : "$${DB_PASSWORD:?DB_PASSWORD is required}"
+      : "$${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
+      : "$${AGENT_SERVICE_TOKEN:?AGENT_SERVICE_TOKEN is required}"
+      : "$${AGENT_COUNT:?AGENT_COUNT is required}"
 
       echo "[openclaw] Starting Docker Compose stack..."
       docker compose up -d --build

@@ -1,4 +1,4 @@
-FROM pgvector/pgvector:pg16
+FROM pgvector/pgvector:pg16@sha256:ad2e18408bf447f62092a8a5259e7df10505c5a0360bd1a1853ac8b8b0763da2
 
 # Copy initialization scripts (run in alphabetical order)
 COPY init.sql /docker-entrypoint-initdb.d/01-init.sql

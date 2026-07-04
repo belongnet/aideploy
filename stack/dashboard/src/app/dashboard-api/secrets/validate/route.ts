@@ -6,6 +6,7 @@ import {
   resolveSecretValue,
   SecretResolutionError,
 } from "@/lib/secret-resolver";
+import { readJsonBody, requestBodyErrorResponse } from "@/lib/request-body";
 
 /**
  * POST /dashboard-api/secrets/validate
@@ -18,10 +19,10 @@ import {
  */
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as {
+    const body = await readJsonBody<{
       value?: string;
       resolve?: boolean;
-    };
+    }>(request);
     const value = String(body.value ?? "").trim();
     if (!value) {
       return NextResponse.json(
@@ -65,6 +66,9 @@ export async function POST(request: Request) {
       resolved: true,
     });
   } catch (error) {
+    const bodyError = requestBodyErrorResponse(error);
+    if (bodyError) return bodyError;
+
     if (error instanceof SecretResolutionError) {
       return NextResponse.json({
         valid: false,

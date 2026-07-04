@@ -41,7 +41,7 @@ variable "project_id" {
 
 variable "webhook_ingress_ipv4_cidrs" {
   type    = list(string)
-  default = ["0.0.0.0/0"]
+  default = []
 }
 
 variable "webhook_ingress_ipv6_cidrs" {
@@ -59,22 +59,30 @@ variable "egress_ipv6_cidrs" {
   default = []
 }
 
-provider "google" {
-  access_token = var.token
-  project      = var.project_id
-  zone         = var.zone
-}
-
 locals {
   webhook_ingress_cidrs = concat(var.webhook_ingress_ipv4_cidrs, var.webhook_ingress_ipv6_cidrs)
   egress_cidrs          = concat(var.egress_ipv4_cidrs, var.egress_ipv6_cidrs)
+  region                = replace(var.zone, "/-[a-z]$/", "")
+}
+
+# Dedicated network: never inherit the default VPC's broad allow-ssh rules.
+resource "google_compute_network" "openclaw" {
+  name                    = "openclaw-${var.deploy_id}"
+  auto_create_subnetworks = false
+}
+
+resource "google_compute_subnetwork" "openclaw" {
+  name          = "openclaw-subnet-${var.deploy_id}"
+  ip_cidr_range = "10.42.0.0/24"
+  region        = local.region
+  network       = google_compute_network.openclaw.id
 }
 
 # Firewall rules
 resource "google_compute_firewall" "openclaw_webhooks" {
   count   = length(local.webhook_ingress_cidrs) > 0 ? 1 : 0
   name    = "openclaw-webhooks-${var.deploy_id}"
-  network = "default"
+  network = google_compute_network.openclaw.name
 
   allow {
     protocol = "tcp"
@@ -88,7 +96,7 @@ resource "google_compute_firewall" "openclaw_webhooks" {
 resource "google_compute_firewall" "openclaw_egress" {
   count     = length(local.egress_cidrs) > 0 ? 1 : 0
   name      = "openclaw-egress-${var.deploy_id}"
-  network   = "default"
+  network   = google_compute_network.openclaw.name
   direction = "EGRESS"
 
   allow {
@@ -109,7 +117,7 @@ resource "google_compute_firewall" "openclaw_egress" {
 
 resource "google_compute_firewall" "openclaw_egress_deny" {
   name      = "openclaw-egress-deny-${var.deploy_id}"
-  network   = "default"
+  network   = google_compute_network.openclaw.name
   direction = "EGRESS"
   priority  = 65534
 
@@ -162,7 +170,8 @@ resource "google_compute_instance" "openclaw" {
   }
 
   network_interface {
-    network = "default"
+    network    = google_compute_network.openclaw.id
+    subnetwork = google_compute_subnetwork.openclaw.id
     access_config {
       # Ephemeral public IP
     }

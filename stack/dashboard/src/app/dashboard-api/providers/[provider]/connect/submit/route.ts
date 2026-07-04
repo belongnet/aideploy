@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { submitProviderConnectInput } from "@/lib/provider-connect";
+import { readJsonBody, requestBodyErrorResponse } from "@/lib/request-body";
 
 function normalizeProvider(provider: string): "openai" | "anthropic" | null {
   return provider === "openai" || provider === "anthropic" ? provider : null;
@@ -20,10 +21,13 @@ export async function POST(
   }
 
   try {
-    const body = (await request.json()) as { input?: string };
+    const body = await readJsonBody<{ input?: string }>(request);
     const session = await submitProviderConnectInput(provider, body.input || "");
     return NextResponse.json({ success: true, session });
   } catch (error) {
+    const bodyError = requestBodyErrorResponse(error);
+    if (bodyError) return bodyError;
+
     return NextResponse.json(
       {
         error:

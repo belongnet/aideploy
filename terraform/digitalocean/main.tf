@@ -41,7 +41,7 @@ variable "ssh_key" {
 
 variable "webhook_ingress_ipv4_cidrs" {
   type    = list(string)
-  default = ["0.0.0.0/0"]
+  default = []
 }
 
 variable "webhook_ingress_ipv6_cidrs" {
@@ -57,10 +57,6 @@ variable "egress_ipv4_cidrs" {
 variable "egress_ipv6_cidrs" {
   type    = list(string)
   default = []
-}
-
-provider "digitalocean" {
-  token = var.token
 }
 
 locals {

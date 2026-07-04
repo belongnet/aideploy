@@ -18,6 +18,7 @@ export default function SettingsPage() {
 
   /* Maintenance patch */
   const [patchScript, setPatchScript] = useState("");
+  const [maintenanceToken, setMaintenanceToken] = useState("");
   const [patchOutput, setPatchOutput] = useState<string | null>(null);
   const [patchOk, setPatchOk] = useState<boolean | null>(null);
   const [patchRunning, setPatchRunning] = useState(false);
@@ -104,7 +105,10 @@ export default function SettingsPage() {
     try {
       const res = await fetch("/api/maintenance/run", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-aideploy-maintenance-token": maintenanceToken.trim(),
+        },
         body: JSON.stringify({ script: patchScript }),
       });
       const data = await res.json();
@@ -265,6 +269,20 @@ export default function SettingsPage() {
           If support gives you a fix to apply, paste it here and press Run.
         </p>
 
+        <input
+          value={maintenanceToken}
+          onChange={(e) => {
+            setMaintenanceToken(e.target.value);
+            setPatchConfirm(false);
+            setPatchOutput(null);
+            setPatchOk(null);
+          }}
+          type="password"
+          placeholder="Maintenance token"
+          className="w-full rounded-lg border border-gray-300 p-3 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500"
+          autoComplete="off"
+        />
+
         <textarea
           value={patchScript}
           onChange={(e) => {
@@ -282,7 +300,7 @@ export default function SettingsPage() {
         {!patchConfirm ? (
           <button
             onClick={() => setPatchConfirm(true)}
-            disabled={!patchScript.trim() || patchRunning}
+            disabled={!patchScript.trim() || !maintenanceToken.trim() || patchRunning}
             className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Run Patch

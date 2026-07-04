@@ -25,6 +25,18 @@ variable "region" {
   default     = "nyc1"
 }
 
+variable "gcp_project_id" {
+  description = "Google Cloud project ID for Terraform-based GCP deployments"
+  type        = string
+  default     = ""
+}
+
+variable "azure_subscription_id" {
+  description = "Azure subscription ID for Terraform-based Azure deployments"
+  type        = string
+  default     = ""
+}
+
 variable "server_size" {
   description = "Server tier: starter, growing, power"
   type        = string

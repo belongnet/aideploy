@@ -112,10 +112,9 @@ def get_allowed_roles() -> set[str]:
 
 def authenticate_request(request: Request) -> tuple[bool, str]:
     service_token = get_service_token()
-    provided_service_token = (
-        request.headers.get("X-OpenClaw-Service-Token", "").strip()
-        or str(request.query_params.get("oc_service_token") or "").strip()
-    )
+    provided_service_token = request.headers.get(
+        "X-OpenClaw-Service-Token", ""
+    ).strip()
     if service_token and provided_service_token:
         if hmac.compare_digest(service_token, provided_service_token):
             return True, "service"

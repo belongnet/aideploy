@@ -28,6 +28,36 @@ terraform {
   }
 }
 
+# Providers live in the root module so child modules can be conditionally
+# instantiated with count. Terraform treats child modules with local provider
+# blocks as legacy modules and rejects count/for_each on those modules.
+provider "digitalocean" {
+  token = var.cloud_provider == "digitalocean" ? var.cloud_token : "unused"
+}
+
+provider "aws" {
+  region     = var.region
+  access_key = var.cloud_provider == "aws" ? try(split(":", var.cloud_token)[0], "unused") : "unused"
+  secret_key = var.cloud_provider == "aws" ? try(split(":", var.cloud_token)[1], "unused") : "unused"
+
+  skip_credentials_validation = true
+  skip_metadata_api_check     = true
+  skip_requesting_account_id  = true
+}
+
+provider "google" {
+  access_token = var.cloud_provider == "gcp" ? var.cloud_token : "unused"
+  project      = var.gcp_project_id
+  zone         = var.region
+}
+
+provider "azurerm" {
+  features {}
+  subscription_id            = var.azure_subscription_id
+  use_oidc                   = false
+  skip_provider_registration = true
+}
+
 # ── Size Mappings ──────────────────────────────────────────────
 
 locals {
@@ -129,6 +159,7 @@ module "azure" {
   vm_size                    = local.azure_sizes[var.server_size]
   deploy_id                  = var.deploy_id
   cloud_init                 = local.cloud_init_rendered
+  ssh_key                    = var.ssh_public_key
   webhook_ingress_ipv4_cidrs = var.webhook_ingress_ipv4_cidrs
   webhook_ingress_ipv6_cidrs = var.webhook_ingress_ipv6_cidrs
   egress_ipv4_cidrs          = var.egress_ipv4_cidrs

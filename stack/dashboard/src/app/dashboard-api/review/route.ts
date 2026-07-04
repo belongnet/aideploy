@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { applyReviewDecision, readReviewQueue } from "@/lib/review-store";
+import { readJsonBody, requestBodyErrorResponse } from "@/lib/request-body";
 
 // Local review-queue API for the per-agent dashboard. GET lists the items the
 // event-workflow agent flagged for a human; POST records the owner's one-tap
@@ -22,7 +23,7 @@ const ACTIONS = new Set(["approve", "reject", "revise", "confirm", "undo"]);
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const body = await readJsonBody<Record<string, unknown>>(request);
     const id = typeof body?.id === "string" ? body.id : "";
     const action = typeof body?.action === "string" ? body.action : "";
     const note = typeof body?.note === "string" ? body.note : null;
@@ -38,6 +39,9 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ ok: true, item: updated });
   } catch (error) {
+    const bodyError = requestBodyErrorResponse(error);
+    if (bodyError) return bodyError;
+
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Could not update review item" },
       { status: 500 },

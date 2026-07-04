@@ -5,6 +5,7 @@ import {
   applySavedKmsCredentialsToEnv,
   type KmsConfig,
 } from "@/lib/secret-resolver";
+import { readJsonBody, requestBodyErrorResponse } from "@/lib/request-body";
 
 /**
  * POST /dashboard-api/secrets/configure
@@ -202,10 +203,10 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as {
+    const body = await readJsonBody<{
       providerId?: string;
       credentials?: Record<string, string>;
-    };
+    }>(request);
 
     const { providerId, credentials } = body;
 
@@ -250,6 +251,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
+    const bodyError = requestBodyErrorResponse(error);
+    if (bodyError) return bodyError;
+
     return NextResponse.json(
       {
         error:
@@ -264,7 +268,7 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const body = (await request.json()) as { providerId?: string };
+    const body = await readJsonBody<{ providerId?: string }>(request);
     const { providerId } = body;
 
     if (!providerId || !PROVIDER_FIELDS[providerId]) {
@@ -287,6 +291,9 @@ export async function DELETE(request: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
+    const bodyError = requestBodyErrorResponse(error);
+    if (bodyError) return bodyError;
+
     return NextResponse.json(
       {
         error:

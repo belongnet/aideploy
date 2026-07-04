@@ -12,19 +12,12 @@
 
 import { NextResponse } from "next/server";
 import type { OverviewStats, DeployInfo } from "@/lib/types";
-import { fromTable, rawQuery } from "@/lib/db";
+import { fromTable, quoteIdentifier, rawQuery } from "@/lib/db";
+import { buildAgentInternalUrl } from "@/lib/internal-service";
 
 const AGENT_SERVICE_TOKEN = process.env.AGENT_SERVICE_TOKEN ?? "";
 const AGENT_INTERNAL_HOST_TEMPLATE =
   process.env.AGENT_INTERNAL_HOST_TEMPLATE ?? "agent-{index1}";
-
-function resolveAgentInternalHost(port: number): string {
-  const index0 = Math.max(0, port - 8101);
-  const index1 = index0 + 1;
-  return AGENT_INTERNAL_HOST_TEMPLATE
-    .replace("{index0}", String(index0))
-    .replace("{index1}", String(index1));
-}
 
 /* ------------------------------------------------------------------ */
 /*  GET handler                                                         */
@@ -66,8 +59,9 @@ async function fetchStats(): Promise<OverviewStats> {
     const counts = await Promise.all(
       allAgents.map(async ({ schema_name }) => {
         try {
+          const schemaSql = quoteIdentifier(schema_name, "agent schema");
           const rows = await rawQuery<{ count: string }>(
-            `SELECT COUNT(*)::text AS count FROM "${schema_name}".messages
+            `SELECT COUNT(*)::text AS count FROM ${schemaSql}.messages
              WHERE created_at >= CURRENT_DATE`,
           );
           return parseInt(rows[0]?.count ?? "0", 10);
@@ -106,7 +100,11 @@ async function fetchStats(): Promise<OverviewStats> {
             headers["X-OpenClaw-Service-Token"] = AGENT_SERVICE_TOKEN;
           }
           const res = await fetch(
-            `http://${resolveAgentInternalHost(agent_port)}:${agent_port}/health`,
+            buildAgentInternalUrl(
+              AGENT_INTERNAL_HOST_TEMPLATE,
+              agent_port,
+              "/health",
+            ),
             {
               signal: controller.signal,
               headers,

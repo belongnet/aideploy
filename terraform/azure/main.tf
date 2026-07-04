@@ -34,6 +34,16 @@ variable "cloud_init" {
   type = string
 }
 
+variable "ssh_key" {
+  type    = string
+  default = ""
+
+  validation {
+    condition     = length(trimspace(var.ssh_key)) > 0
+    error_message = "Azure deployments require ssh_key; pass the caller's SSH public key explicitly."
+  }
+}
+
 variable "subscription_id" {
   type    = string
   default = ""
@@ -41,7 +51,7 @@ variable "subscription_id" {
 
 variable "webhook_ingress_ipv4_cidrs" {
   type    = list(string)
-  default = ["0.0.0.0/0"]
+  default = []
 }
 
 variable "webhook_ingress_ipv6_cidrs" {
@@ -57,13 +67,6 @@ variable "egress_ipv4_cidrs" {
 variable "egress_ipv6_cidrs" {
   type    = list(string)
   default = []
-}
-
-provider "azurerm" {
-  features {}
-  subscription_id            = var.subscription_id
-  use_oidc                   = false
-  skip_provider_registration = true
 }
 
 locals {
@@ -189,7 +192,7 @@ resource "azurerm_linux_virtual_machine" "openclaw" {
 
   admin_ssh_key {
     username   = "openclaw"
-    public_key = file("~/.ssh/id_rsa.pub")
+    public_key = var.ssh_key
   }
 
   os_disk {

@@ -18,7 +18,9 @@ import type {
   ConversationPreview,
   BusMessage,
 } from "@/lib/types";
-import { fromTable, rawQuery } from "@/lib/db";
+import { fromTable, quoteIdentifier, rawQuery } from "@/lib/db";
+import { readJsonBody, requestBodyErrorResponse } from "@/lib/request-body";
+import { buildAgentInternalUrl } from "@/lib/internal-service";
 
 /* ------------------------------------------------------------------ */
 /*  Database connection helper                                          */
@@ -56,7 +58,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const body = await readJsonBody<Record<string, unknown>>(request);
     const { agent_id, action } = body as {
       agent_id?: string;
       action: string;
@@ -126,6 +128,9 @@ export async function POST(request: NextRequest) {
         );
     }
   } catch (err) {
+    const bodyError = requestBodyErrorResponse(err);
+    if (bodyError) return bodyError;
+
     console.error("[api/agents] POST error:", err);
     return NextResponse.json(
       { error: "Internal server error" },
@@ -140,7 +145,7 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const body = await request.json();
+    const body = await readJsonBody<Record<string, unknown>>(request);
     const { agent_id, name } = body as { agent_id: string; name?: unknown };
     if (!agent_id) {
       return NextResponse.json(
@@ -173,6 +178,9 @@ export async function PATCH(request: NextRequest) {
       { status: 400 },
     );
   } catch (err) {
+    const bodyError = requestBodyErrorResponse(err);
+    if (bodyError) return bodyError;
+
     console.error("[api/agents] PATCH error:", err);
     return NextResponse.json(
       { error: "Internal server error" },
@@ -274,13 +282,14 @@ async function fetchAgentConfig(
   schema: string,
 ): Promise<AgentConfig | null> {
   try {
+    const schemaSql = quoteIdentifier(schema, "agent schema");
     const rows = await rawQuery<AgentConfig>(
       `SELECT model_provider, auth_method, model, system_prompt, agent_name,
               temperature, max_tokens, prune_enabled, prune_after_days, prune_keep_starred,
               memory_enabled, memory_provider, memory_capture_mode,
               memory_recall_top_k, memory_similarity_threshold,
               knowledge_provider, knowledge_collections
-       FROM "${schema}".agent_config LIMIT 1`,
+       FROM ${schemaSql}.agent_config LIMIT 1`,
     );
     return rows[0] ?? null;
   } catch {
@@ -292,8 +301,9 @@ async function fetchAgentChannels(
   schema: string,
 ): Promise<ChannelSummary[]> {
   try {
+    const schemaSql = quoteIdentifier(schema, "agent schema");
     return await rawQuery<ChannelSummary>(
-      `SELECT id, type, name, status FROM "${schema}".channels ORDER BY created_at ASC`,
+      `SELECT id, type, name, status FROM ${schemaSql}.channels ORDER BY created_at ASC`,
     );
   } catch {
     return [];
@@ -302,8 +312,9 @@ async function fetchAgentChannels(
 
 async function fetchMessageCount(schema: string): Promise<number> {
   try {
+    const schemaSql = quoteIdentifier(schema, "agent schema");
     const rows = await rawQuery<{ count: string }>(
-      `SELECT COUNT(*)::text AS count FROM "${schema}".messages
+      `SELECT COUNT(*)::text AS count FROM ${schemaSql}.messages
        WHERE created_at >= CURRENT_DATE`,
     );
     return parseInt(rows[0]?.count ?? "0", 10);
@@ -318,10 +329,11 @@ async function fetchAgentAiConnected(
 ): Promise<boolean> {
   if (!config) return false;
   try {
+    const schemaSql = quoteIdentifier(schema, "agent schema");
     if (config.auth_method === "oauth") {
       const rows = await rawQuery<{ count: string }>(
         `SELECT COUNT(*)::text AS count
-         FROM "${schema}".oauth_tokens
+         FROM ${schemaSql}.oauth_tokens
          WHERE provider = $1`,
         [config.model_provider],
       );
@@ -330,7 +342,7 @@ async function fetchAgentAiConnected(
 
     const rows = await rawQuery<{ count: string }>(
       `SELECT COUNT(*)::text AS count
-       FROM "${schema}".api_keys
+       FROM ${schemaSql}.api_keys
        WHERE provider = $1`,
       [config.model_provider],
     );
@@ -360,9 +372,10 @@ async function fetchRecentConversations(
   schema: string,
 ): Promise<ConversationPreview[]> {
   try {
+    const schemaSql = quoteIdentifier(schema, "agent schema");
     return await rawQuery<ConversationPreview>(
       `SELECT id, title, participant_name, message_count, last_message_at, starred
-       FROM "${schema}".conversations
+       FROM ${schemaSql}.conversations
        ORDER BY last_message_at DESC NULLS LAST
        LIMIT 10`,
     );
@@ -393,14 +406,6 @@ async function fetchAgentBusMessages(
   }
 }
 
-function resolveAgentInternalHost(port: number): string {
-  const index0 = Math.max(0, port - 8101);
-  const index1 = index0 + 1;
-  return AGENT_INTERNAL_HOST_TEMPLATE
-    .replace("{index0}", String(index0))
-    .replace("{index1}", String(index1));
-}
-
 /** Probe the agent's internal /health endpoint. */
 async function checkHealth(port: number): Promise<boolean> {
   try {
@@ -411,9 +416,9 @@ async function checkHealth(port: number): Promise<boolean> {
       headers["X-OpenClaw-Service-Token"] = AGENT_SERVICE_TOKEN;
     }
     const res = await fetch(
-      `http://${resolveAgentInternalHost(port)}:${port}/health`,
+      buildAgentInternalUrl(AGENT_INTERNAL_HOST_TEMPLATE, port, "/health"),
       {
-      signal: controller.signal,
+        signal: controller.signal,
         headers,
       }
     );

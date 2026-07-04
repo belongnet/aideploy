@@ -2,12 +2,75 @@
 set -euo pipefail
 
 ENV_FILE="${AIDEPLOY_SUPABASE_ENV_FILE:-/etc/aideploy/supabase.env}"
-if [ -f "$ENV_FILE" ]; then
-  set -a
-  # shellcheck disable=SC1090
-  . "$ENV_FILE"
-  set +a
+load_safe_env_exports() {
+  local env_file="$1"
+  [ -f "$env_file" ] || return 0
+
+  python3 - "$env_file" <<'PY'
+import re
+import shlex
+import sys
+
+allowed_keys = {
+    "AIDEPLOY_CLOUD_PROVIDER",
+    "DB_PASSWORD",
+    "DEPLOY_ID",
+    "JWT_SECRET",
+    "POSTGRES_PASSWORD",
+    "REALTIME_DB_ENC_KEY",
+    "SUPABASE_ANON_KEY",
+    "SUPABASE_BACKUP_AZURE_ACCOUNT",
+    "SUPABASE_BACKUP_BUCKET",
+    "SUPABASE_BACKUP_CLOUD_PROVIDER",
+    "SUPABASE_BACKUP_GCP_PROJECT_ID",
+    "SUPABASE_BACKUP_INCLUDE_STORAGE",
+    "SUPABASE_BACKUP_MODE",
+    "SUPABASE_BACKUP_NATIVE_BUCKET",
+    "SUPABASE_BACKUP_NATIVE_PREFIX",
+    "SUPABASE_BACKUP_PREFIX",
+    "SUPABASE_BACKUP_PROVIDER",
+    "SUPABASE_BACKUP_REGION",
+    "SUPABASE_BACKUP_RUN_ID",
+    "SUPABASE_BACKUP_S3_ENDPOINT",
+    "SUPABASE_BACKUP_SERVICE_ROLE_KEY",
+    "SUPABASE_BACKUP_STATE_DIR",
+    "SUPABASE_BACKUP_TARGET_URL",
+    "SUPABASE_PUBLIC_URL",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "SUPABASE_URL",
+}
+aliases = {
+    "ANON_KEY": "SUPABASE_ANON_KEY",
+    "SERVICE_ROLE_KEY": "SUPABASE_SERVICE_ROLE_KEY",
+}
+key_re = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    for raw_line in handle:
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
+        key, raw_value = line.split("=", 1)
+        key = aliases.get(key.strip(), key.strip())
+        if key not in allowed_keys or not key_re.fullmatch(key):
+            continue
+        try:
+            parts = shlex.split(raw_value.strip(), posix=True)
+        except ValueError as exc:
+            print(f"[aideploy] ERROR: Invalid shell value for {key}: {exc}", file=sys.stderr)
+            sys.exit(1)
+        value = " ".join(parts) if parts else ""
+        print(f"export {key}={shlex.quote(value)}")
+PY
+}
+
+if ! SAFE_ENV_EXPORTS="$(load_safe_env_exports "$ENV_FILE")"; then
+  echo "[aideploy] ERROR: Failed to safely load $ENV_FILE" >&2
+  exit 1
 fi
+eval "$SAFE_ENV_EXPORTS"
 
 MODE="${SUPABASE_BACKUP_MODE:-${1:-full}}"
 case "$MODE" in
@@ -43,6 +106,10 @@ fi
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 RUN_ID="${SUPABASE_BACKUP_RUN_ID:-${MODE}-${TIMESTAMP}}"
+if [[ ! "$RUN_ID" =~ ^[A-Za-z0-9._-]{1,128}$ ]]; then
+  echo "[aideploy] SUPABASE_BACKUP_RUN_ID contains unsafe characters" >&2
+  exit 1
+fi
 ARCHIVE_ROOT="${NATIVE_PREFIX}/${MODE}/${TIMESTAMP}"
 TMP_DIR="$(mktemp -d)"
 ARTIFACT_DIR="$TMP_DIR/artifacts"

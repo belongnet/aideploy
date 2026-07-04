@@ -12,6 +12,9 @@ from src.adapters.telegram import TelegramAdapter
 from src.adapters.whatsapp import WhatsAppAdapter
 from src.normalizer import NormalizedMessage
 from src.router import (
+    _download_slack_attachment,
+    _download_whatsapp_attachment,
+    _is_allowed_slack_file_url,
     _require_internal_auth,
     _upload_provider_attachments,
     slack_webhook,
@@ -60,6 +63,38 @@ class _FakeRequest:
         if self._raw_body is not None:
             return self._raw_body
         return json.dumps(self._payload).encode("utf-8")
+
+
+class _FakeDownloadResponse:
+    def __init__(
+        self,
+        payload: dict[str, object] | None = None,
+        *,
+        content: bytes = b"",
+        headers: dict[str, str] | None = None,
+        status_code: int = 200,
+    ) -> None:
+        self._payload = payload or {}
+        self.content = content
+        self.headers = headers or {}
+        self.status_code = status_code
+
+    def json(self) -> dict[str, object]:
+        return self._payload
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise RuntimeError("request failed")
+
+
+class _FakeDownloadClient:
+    def __init__(self, responses: list[_FakeDownloadResponse]) -> None:
+        self.responses = responses
+        self.calls: list[dict[str, object]] = []
+
+    async def get(self, url: str, **kwargs):
+        self.calls.append({"url": url, "kwargs": kwargs})
+        return self.responses.pop(0)
 
 
 class RouterAttachmentUploadTest(unittest.IsolatedAsyncioTestCase):
@@ -130,6 +165,217 @@ class RouterAttachmentUploadTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("sensitive bot token", str(enriched))
 
+    async def test_downloads_whatsapp_media_only_from_meta_media_hosts(self) -> None:
+        client = _FakeDownloadClient(
+            [
+                _FakeDownloadResponse(
+                    {
+                        "url": "https://lookaside.fbsbx.com/whatsapp_business/attachments/file",
+                        "mime_type": "image/jpeg",
+                    }
+                ),
+                _FakeDownloadResponse(
+                    content=b"image-bytes",
+                    headers={"content-type": "image/jpeg"},
+                ),
+            ]
+        )
+
+        with patch("src.router.WHATSAPP_ACCESS_TOKEN", "wa-token"):
+            content, content_type, filename = await _download_whatsapp_attachment(
+                client,
+                {
+                    "media_id": "media-1",
+                    "kind": "image",
+                    "original_name": "photo.jpg",
+                },
+            )
+
+        self.assertEqual(content, b"image-bytes")
+        self.assertEqual(content_type, "image/jpeg")
+        self.assertEqual(filename, "photo.jpg")
+        self.assertEqual(
+            client.calls[1]["kwargs"]["headers"]["Authorization"],
+            "Bearer wa-token",
+        )
+
+    async def test_refuses_whatsapp_media_url_before_sending_token(self) -> None:
+        client = _FakeDownloadClient(
+            [
+                _FakeDownloadResponse(
+                    {
+                        "url": "https://attacker.example/download",
+                        "mime_type": "image/jpeg",
+                    }
+                )
+            ]
+        )
+
+        with patch("src.router.WHATSAPP_ACCESS_TOKEN", "wa-token"):
+            with self.assertRaisesRegex(RuntimeError, "non-Meta media URL"):
+                await _download_whatsapp_attachment(
+                    client,
+                    {
+                        "media_id": "media-1",
+                        "kind": "image",
+                    },
+                )
+
+        self.assertEqual(len(client.calls), 1)
+
+    async def test_refuses_whatsapp_media_redirect_before_resending_token(self) -> None:
+        client = _FakeDownloadClient(
+            [
+                _FakeDownloadResponse(
+                    {
+                        "url": "https://lookaside.fbsbx.com/whatsapp_business/attachments/file",
+                        "mime_type": "image/jpeg",
+                    }
+                ),
+                _FakeDownloadResponse(
+                    status_code=302,
+                    headers={"location": "https://attacker.example/download"},
+                ),
+            ]
+        )
+
+        with patch("src.router.WHATSAPP_ACCESS_TOKEN", "wa-token"):
+            with self.assertRaisesRegex(RuntimeError, "untrusted URL"):
+                await _download_whatsapp_attachment(
+                    client,
+                    {
+                        "media_id": "media-1",
+                        "kind": "image",
+                    },
+                )
+
+        self.assertEqual(len(client.calls), 2)
+        self.assertEqual(
+            client.calls[1]["kwargs"]["headers"]["Authorization"],
+            "Bearer wa-token",
+        )
+        self.assertFalse(client.responses)
+
+    async def test_downloads_slack_file_only_from_slack_files_host(self) -> None:
+        client = _FakeDownloadClient(
+            [
+                _FakeDownloadResponse(
+                    content=b"file-bytes",
+                    headers={"content-type": "text/plain"},
+                )
+            ]
+        )
+
+        with patch("src.router.SLACK_BOT_TOKEN", "xoxb-token"):
+            content, content_type, filename = await _download_slack_attachment(
+                client,
+                {
+                    "download_url": "https://files.slack.com/files-pri/T123-F123/download/report.txt",
+                    "kind": "document",
+                    "original_name": "report.txt",
+                },
+            )
+
+        self.assertEqual(content, b"file-bytes")
+        self.assertEqual(content_type, "text/plain")
+        self.assertEqual(filename, "report.txt")
+        self.assertEqual(
+            client.calls[0]["kwargs"]["headers"]["Authorization"],
+            "Bearer xoxb-token",
+        )
+
+    async def test_refuses_slack_lookalike_url_before_sending_token(self) -> None:
+        client = _FakeDownloadClient([])
+
+        with patch("src.router.SLACK_BOT_TOKEN", "xoxb-token"):
+            with self.assertRaisesRegex(RuntimeError, "non-Slack URL"):
+                await _download_slack_attachment(
+                    client,
+                    {
+                        "download_url": "https://files.slack.com.evil.example/download",
+                        "kind": "document",
+                    },
+                )
+
+        self.assertEqual(client.calls, [])
+
+    async def test_follows_slack_redirect_only_to_allowed_file_host(self) -> None:
+        client = _FakeDownloadClient(
+            [
+                _FakeDownloadResponse(
+                    status_code=302,
+                    headers={"location": "/files-pri/T123-F123/download/next.txt"},
+                ),
+                _FakeDownloadResponse(
+                    content=b"redirected-file",
+                    headers={"content-type": "text/plain"},
+                ),
+            ]
+        )
+
+        with patch("src.router.SLACK_BOT_TOKEN", "xoxb-token"):
+            content, content_type, filename = await _download_slack_attachment(
+                client,
+                {
+                    "download_url": "https://files.slack.com/files-pri/T123-F123/download/report.txt",
+                    "kind": "document",
+                    "original_name": "report.txt",
+                },
+            )
+
+        self.assertEqual(content, b"redirected-file")
+        self.assertEqual(content_type, "text/plain")
+        self.assertEqual(filename, "report.txt")
+        self.assertEqual(len(client.calls), 2)
+        self.assertEqual(
+            client.calls[1]["url"],
+            "https://files.slack.com/files-pri/T123-F123/download/next.txt",
+        )
+        self.assertEqual(
+            client.calls[1]["kwargs"]["headers"]["Authorization"],
+            "Bearer xoxb-token",
+        )
+
+    async def test_refuses_slack_redirect_before_resending_token(self) -> None:
+        client = _FakeDownloadClient(
+            [
+                _FakeDownloadResponse(
+                    status_code=302,
+                    headers={"location": "https://attacker.example/download"},
+                ),
+            ]
+        )
+
+        with patch("src.router.SLACK_BOT_TOKEN", "xoxb-token"):
+            with self.assertRaisesRegex(RuntimeError, "untrusted URL"):
+                await _download_slack_attachment(
+                    client,
+                    {
+                        "download_url": "https://files.slack.com/files-pri/T123-F123/download/report.txt",
+                        "kind": "document",
+                    },
+                )
+
+        self.assertEqual(len(client.calls), 1)
+        self.assertFalse(client.responses)
+
+    def test_slack_file_url_rejects_userinfo_and_non_https(self) -> None:
+        self.assertTrue(
+            _is_allowed_slack_file_url(
+                "https://files.slack.com/files-pri/T123-F123/download/report.txt"
+            )
+        )
+        self.assertFalse(
+            _is_allowed_slack_file_url(
+                "https://xoxb-token@files.slack.com/files-pri/T123-F123/download/report.txt"
+            )
+        )
+        self.assertFalse(
+            _is_allowed_slack_file_url(
+                "http://files.slack.com/files-pri/T123-F123/download/report.txt"
+            )
+        )
+
 
 class TelegramWebhookTest(unittest.IsolatedAsyncioTestCase):
     async def test_rejects_missing_telegram_webhook_secret(self) -> None:
@@ -157,6 +403,27 @@ class TelegramWebhookTest(unittest.IsolatedAsyncioTestCase):
             await telegram_webhook("local", _FakeRequest({}, headers={}))
 
         self.assertEqual(raised.exception.status_code, 401)
+
+    async def test_rejects_oversized_telegram_webhook_body(self) -> None:
+        with (
+            patch("src.router.DEPLOY_ID", "local"),
+            patch("src.router.MAX_REQUEST_BODY_BYTES", 2),
+            patch("src.router.telegram_adapter", TelegramAdapter("bot-token", "secret")),
+            self.assertRaises(HTTPException) as raised,
+        ):
+            await telegram_webhook(
+                "local",
+                _FakeRequest(
+                    {},
+                    headers={
+                        "X-Telegram-Bot-Api-Secret-Token": "secret",
+                        "Content-Length": "3",
+                    },
+                    raw_body=b"{}",
+                ),
+            )
+
+        self.assertEqual(raised.exception.status_code, 413)
 
     async def test_acknowledges_my_chat_member_updates_without_forwarding(self) -> None:
         fake_adapter = Mock()
@@ -262,6 +529,24 @@ class WhatsAppWebhookTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.body.decode("utf-8"), "challenge-123")
         self.assertEqual(response.media_type, "text/plain")
+
+    async def test_get_verification_fails_closed_without_verify_token(self) -> None:
+        with (
+            patch("src.router.DEPLOY_ID", "local"),
+            patch(
+                "src.router.whatsapp_adapter",
+                WhatsAppAdapter("access-token", "", "phone-id", "app-secret"),
+            ),
+            self.assertRaises(HTTPException) as raised,
+        ):
+            await whatsapp_verify(
+                "local",
+                hub_mode="subscribe",
+                hub_token="openclaw-verify",
+                hub_challenge="challenge-123",
+            )
+
+        self.assertEqual(raised.exception.status_code, 403)
 
     async def test_rejects_missing_whatsapp_app_secret(self) -> None:
         with (
@@ -370,8 +655,40 @@ class SlackWebhookTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(raised.exception.status_code, 503)
 
+    async def test_rejects_signed_malformed_json(self) -> None:
+        fake_adapter = Mock()
+        fake_adapter.signing_secret = "secret"
+        fake_adapter.verify_signature.return_value = True
+
+        with (
+            patch("src.router.DEPLOY_ID", "local"),
+            patch("src.router.slack_adapter", fake_adapter),
+            self.assertRaises(HTTPException) as raised,
+        ):
+            await slack_webhook(
+                "local",
+                _FakeRequest(
+                    {},
+                    headers={
+                        "X-Slack-Request-Timestamp": "123",
+                        "X-Slack-Signature": "v0=anything",
+                    },
+                    raw_body=b"{not-json",
+                ),
+            )
+
+        self.assertEqual(raised.exception.status_code, 400)
+
 
 class InternalAuthTest(unittest.TestCase):
+    def test_internal_auth_accepts_service_token_header(self) -> None:
+        request = _FakeRequest(
+            {},
+            headers={"X-OpenClaw-Service-Token": "service-secret"},
+        )
+        with patch("src.router.AGENT_SERVICE_TOKEN", "service-secret"):
+            _require_internal_auth(request)  # type: ignore[arg-type]
+
     def test_internal_auth_fails_closed_when_service_token_missing(self) -> None:
         request = _FakeRequest({})
         with patch("src.router.AGENT_SERVICE_TOKEN", ""):
@@ -379,6 +696,15 @@ class InternalAuthTest(unittest.TestCase):
                 _require_internal_auth(request)  # type: ignore[arg-type]
 
         self.assertEqual(ctx.exception.status_code, 503)
+
+    def test_internal_auth_rejects_service_token_query_param(self) -> None:
+        request = _FakeRequest({})
+        request.query_params["oc_service_token"] = "service-secret"
+        with patch("src.router.AGENT_SERVICE_TOKEN", "service-secret"):
+            with self.assertRaises(HTTPException) as ctx:
+                _require_internal_auth(request)  # type: ignore[arg-type]
+
+        self.assertEqual(ctx.exception.status_code, 401)
 
 
 if __name__ == "__main__":

@@ -1,9 +1,14 @@
 import { constants } from "node:fs";
 import { execFile, spawn } from "node:child_process";
 import { access, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import net from "node:net";
 import path from "node:path";
 
 const DEFAULT_STATE_DIR = "/var/lib/aideploy/backups";
+const AZURE_STORAGE_ACCOUNT_RE = /^[a-z0-9]{3,24}$/;
+const AZURE_CONTAINER_RE = /^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$/;
+const S3_BUCKET_RE = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
+const SAFE_PREFIX_RE = /^[A-Za-z0-9._/-]{1,512}$/;
 
 export interface RecoveryArtifact {
   name: string;
@@ -130,6 +135,7 @@ function normalizeBackupId(value: string): string {
   const id = (value ?? "").trim();
   if (!id || id === "." || id === "..") return "";
   if (id.includes("/") || id.includes("\\") || id.includes("\0")) return "";
+  if (!/^[A-Za-z0-9._-]{1,128}$/.test(id)) return "";
   return id;
 }
 
@@ -215,6 +221,99 @@ function normalizeNativeProvider(provider: string) {
 
 function isCloudNativeProvider(provider: string) {
   return provider === "cloud-native" || provider === "native";
+}
+
+function isPrivateOrReservedHostname(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local") ||
+    host.endsWith(".internal") ||
+    host.endsWith(".lan") ||
+    host.endsWith(".home")
+  ) {
+    return true;
+  }
+
+  const ipVersion = net.isIP(host);
+  if (!ipVersion && !host.includes(".")) return true;
+  if (ipVersion === 4) {
+    const [a = 0, b = 0] = host.split(".").map((part) => Number(part));
+    return (
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 192 && b === 0) ||
+      (a === 192 && b === 2) ||
+      (a === 198 && (b === 18 || b === 19 || b === 51)) ||
+      (a === 203 && b === 0) ||
+      a >= 224
+    );
+  }
+  if (ipVersion === 6) {
+    return (
+      host === "::" ||
+      host === "::1" ||
+      host.startsWith("fc") ||
+      host.startsWith("fd") ||
+      host.startsWith("fe80") ||
+      host.startsWith("2001:db8") ||
+      host.startsWith("ff")
+    );
+  }
+  return false;
+}
+
+function isValidBackupPrefix(prefix: string): boolean {
+  if (!SAFE_PREFIX_RE.test(prefix)) return false;
+  return prefix
+    .split("/")
+    .filter(Boolean)
+    .every((segment) => segment !== "." && segment !== "..");
+}
+
+function isValidS3BucketName(bucket: string): boolean {
+  if (!S3_BUCKET_RE.test(bucket)) return false;
+  return !bucket.includes("..") && !bucket.includes(".-") && !bucket.includes("-.");
+}
+
+function normalizeS3Endpoint(provider: string, endpoint: string): string | null {
+  const raw = endpoint.trim();
+  if (!raw) return null;
+
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+
+  const host = url.hostname.toLowerCase();
+  const providerHostOk =
+    (provider === "digitalocean" && host.endsWith(".digitaloceanspaces.com")) ||
+    (provider === "scaleway" &&
+      (host.endsWith(".scw.cloud") || host.endsWith(".scaleway.com")));
+
+  if (
+    url.protocol !== "https:" ||
+    !host ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    (url.pathname && url.pathname !== "/") ||
+    !providerHostOk ||
+    isPrivateOrReservedHostname(host)
+  ) {
+    return null;
+  }
+
+  return url.origin;
 }
 
 function backupRestoreEligibility(mode: string, status: string, manifestAvailable: boolean) {
@@ -508,6 +607,20 @@ async function backupCatalogConfig(): Promise<BackupCatalogConfig> {
     env.DEPLOY_ID ||
     "";
 
+  const unavailable = (message: string): BackupCatalogConfig => ({
+    available: false,
+    provider,
+    nativeProvider,
+    cloudProvider,
+    bucket,
+    prefix,
+    region: env.SUPABASE_BACKUP_REGION || env.AWS_REGION || env.AWS_DEFAULT_REGION || "",
+    endpoint: env.SUPABASE_BACKUP_S3_ENDPOINT || "",
+    azureAccount: env.SUPABASE_BACKUP_AZURE_ACCOUNT || env.AZURE_STORAGE_ACCOUNT || "",
+    message,
+    env,
+  });
+
   if (!nativeProvider || nativeProvider === "supabase-storage") {
     return {
       available: false,
@@ -524,19 +637,42 @@ async function backupCatalogConfig(): Promise<BackupCatalogConfig> {
     };
   }
   if (!bucket || !prefix) {
-    return {
-      available: false,
-      provider,
-      nativeProvider,
-      cloudProvider,
-      bucket,
-      prefix,
-      region: env.SUPABASE_BACKUP_REGION || env.AWS_REGION || env.AWS_DEFAULT_REGION || "",
-      endpoint: env.SUPABASE_BACKUP_S3_ENDPOINT || "",
-      azureAccount: env.SUPABASE_BACKUP_AZURE_ACCOUNT || env.AZURE_STORAGE_ACCOUNT || "",
-      message: "Cloud backup catalog needs SUPABASE_BACKUP_NATIVE_BUCKET and SUPABASE_BACKUP_NATIVE_PREFIX.",
-      env,
-    };
+    return unavailable("Cloud backup catalog needs SUPABASE_BACKUP_NATIVE_BUCKET and SUPABASE_BACKUP_NATIVE_PREFIX.");
+  }
+  if (!isValidBackupPrefix(prefix)) {
+    return unavailable("Cloud backup catalog prefix is invalid.");
+  }
+  if (
+    (nativeProvider === "aws" ||
+      nativeProvider === "digitalocean" ||
+      nativeProvider === "scaleway" ||
+      nativeProvider === "gcp") &&
+    !isValidS3BucketName(bucket)
+  ) {
+    return unavailable("Cloud backup catalog bucket name is invalid.");
+  }
+
+  const configuredEndpoint = env.SUPABASE_BACKUP_S3_ENDPOINT || "";
+  const endpoint =
+    nativeProvider === "digitalocean" || nativeProvider === "scaleway"
+      ? normalizeS3Endpoint(nativeProvider, configuredEndpoint)
+      : configuredEndpoint;
+  if (
+    (nativeProvider === "digitalocean" || nativeProvider === "scaleway") &&
+    !endpoint
+  ) {
+    return unavailable("Cloud backup catalog S3 endpoint is invalid.");
+  }
+
+  const azureAccount =
+    env.SUPABASE_BACKUP_AZURE_ACCOUNT || env.AZURE_STORAGE_ACCOUNT || "";
+  if (nativeProvider === "azure") {
+    if (!AZURE_STORAGE_ACCOUNT_RE.test(azureAccount)) {
+      return unavailable("Azure backup catalog storage account is invalid.");
+    }
+    if (!AZURE_CONTAINER_RE.test(bucket) || bucket.includes("--")) {
+      return unavailable("Azure backup catalog container name is invalid.");
+    }
   }
 
   return {
@@ -547,8 +683,8 @@ async function backupCatalogConfig(): Promise<BackupCatalogConfig> {
     bucket,
     prefix,
     region: env.SUPABASE_BACKUP_REGION || env.AWS_REGION || env.AWS_DEFAULT_REGION || "",
-    endpoint: env.SUPABASE_BACKUP_S3_ENDPOINT || "",
-    azureAccount: env.SUPABASE_BACKUP_AZURE_ACCOUNT || env.AZURE_STORAGE_ACCOUNT || "",
+    endpoint: endpoint || "",
+    azureAccount,
     message: "",
     env,
   };

@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { execSync } from "child_process";
-import { writeFileSync, unlinkSync, mkdirSync } from "fs";
+import { execFileSync } from "child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
-import { randomBytes, timingSafeEqual } from "crypto";
+import { timingSafeEqual } from "crypto";
+import { readJsonBody, requestBodyErrorResponse } from "@/lib/request-body";
 
 const MAX_SCRIPT_LENGTH = 32_000;
 const EXEC_TIMEOUT_MS = 120_000;
 const REQUIRED_MAINTENANCE_POLICY = "ssh-equivalent";
-const AUTH_COOKIE = "aideploy_dash_auth";
 
 function maintenancePolicyEnabled() {
   // This endpoint is shell-equivalent; only managed deployments whose
@@ -34,29 +35,15 @@ function bearerToken(req: NextRequest) {
 
 function maintenanceAuthorized(req: NextRequest) {
   const maintenanceToken = process.env.AIDEPLOY_MAINTENANCE_TOKEN?.trim() ?? "";
-  const dashboardToken = process.env.DASHBOARD_TOKEN?.trim() ?? "";
 
-  if (!maintenanceToken && !dashboardToken) return false;
+  if (!maintenanceToken) return false;
 
   const headerTokens = [
     req.headers.get("x-aideploy-maintenance-token")?.trim() ?? "",
-    req.headers.get("x-aideploy-dashboard-token")?.trim() ?? "",
     bearerToken(req),
   ];
-  const cookieToken = req.cookies.get(AUTH_COOKIE)?.value.trim() ?? "";
 
-  if (
-    maintenanceToken &&
-    headerTokens.some((token) => constantTimeEqual(token, maintenanceToken))
-  ) {
-    return true;
-  }
-
-  return (
-    dashboardToken &&
-    (constantTimeEqual(cookieToken, dashboardToken) ||
-      headerTokens.some((token) => constantTimeEqual(token, dashboardToken)))
-  );
+  return headerTokens.some((token) => constantTimeEqual(token, maintenanceToken));
 }
 
 export async function POST(req: NextRequest) {
@@ -75,7 +62,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         ok: false,
-        error: "Maintenance authorization is required.",
+        error: "A dedicated maintenance token is required.",
       },
       { status: 401 },
     );
@@ -83,8 +70,11 @@ export async function POST(req: NextRequest) {
 
   let body: { script?: string };
   try {
-    body = await req.json();
-  } catch {
+    body = await readJsonBody(req);
+  } catch (error) {
+    const bodyError = requestBodyErrorResponse(error);
+    if (bodyError) return bodyError;
+
     return NextResponse.json(
       { ok: false, error: "Invalid request body" },
       { status: 400 },
@@ -108,18 +98,17 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const tmpDir = "/tmp/aideploy-patches";
-  const id = randomBytes(8).toString("hex");
-  const scriptPath = join(tmpDir, `patch-${id}.sh`);
+  const tmpDir = mkdtempSync(join(tmpdir(), "aideploy-patch-"));
+  const scriptPath = join(tmpDir, "patch.sh");
 
   try {
-    mkdirSync(tmpDir, { recursive: true });
     writeFileSync(scriptPath, script, { mode: 0o755 });
 
-    const output = execSync(`/bin/sh ${scriptPath} 2>&1`, {
+    const output = execFileSync("/bin/sh", [scriptPath], {
       timeout: EXEC_TIMEOUT_MS,
       maxBuffer: 1024 * 1024,
       encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
         PATH: `/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${process.env.PATH ?? ""}`,
@@ -146,7 +135,7 @@ export async function POST(req: NextRequest) {
     });
   } finally {
     try {
-      unlinkSync(scriptPath);
+      rmSync(tmpDir, { recursive: true, force: true });
     } catch {
       /* ignore cleanup errors */
     }

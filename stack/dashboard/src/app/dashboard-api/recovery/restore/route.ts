@@ -3,16 +3,24 @@ import {
   RestoreRequestValidationError,
   createRestorePlaceholder,
 } from "@/lib/recovery-server";
+import { readJsonBody, requestBodyErrorResponse } from "@/lib/request-body";
 
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
-  const body = (await request.json().catch(() => null)) as {
+  let body: {
     runId?: unknown;
     mode?: unknown;
     mergeReviewed?: unknown;
     confirmation?: unknown;
-  } | null;
+  };
+  try {
+    body = await readJsonBody(request);
+  } catch (error) {
+    const bodyError = requestBodyErrorResponse(error);
+    if (bodyError) return bodyError;
+    throw error;
+  }
   const runId = typeof body?.runId === "string" ? body.runId.trim() : "";
   const mode = body?.mode === "merge" ? "merge" : "full";
   const confirmation =

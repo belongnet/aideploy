@@ -15,7 +15,7 @@ services:
     # exec/subprocess tools until new exec calls hang.
     init: true
     ports:
-      - "3000:3000"
+      - "${AIDEPLOY_HOST_BIND:-127.0.0.1}:3000:3000"
     environment:
       PORT: "3000"
       DATABASE_URL: "postgresql://postgres:${DB_PASSWORD:?DB_PASSWORD is required}@${DB_HOST:-supabase-db}:${DB_PORT:-5432}/postgres"
@@ -25,12 +25,15 @@ services:
       AGENT_SERVICE_TOKEN: "${AGENT_SERVICE_TOKEN:?AGENT_SERVICE_TOKEN is required}"
       AGENT_INTERNAL_HOST_TEMPLATE: "agent-{index0}"
       DASHBOARD_TOKEN: "${DASHBOARD_TOKEN:-}"
+      DASHBOARD_BOOTSTRAP_TOKEN: "${DASHBOARD_BOOTSTRAP_TOKEN:-}"
       AIDEPLOY_MAINTENANCE_TOKEN: "${AIDEPLOY_MAINTENANCE_TOKEN:-}"
+      AIDEPLOY_DASHBOARD_JSON_MAX_BODY_BYTES: "${AIDEPLOY_DASHBOARD_JSON_MAX_BODY_BYTES:-65536}"
+      AIDEPLOY_DASHBOARD_REQUEST_BODY_LIMIT: "${AIDEPLOY_DASHBOARD_REQUEST_BODY_LIMIT:-1mb}"
       SUPABASE_URL: "${SUPABASE_URL:-http://supabase-kong:8000}"
       SUPABASE_PUBLIC_URL: "${SUPABASE_PUBLIC_URL:-http://localhost:8000}"
       SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:-}"
       SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-}"
-      AIDEPLOY_MAINTENANCE_TAILSCALE_POLICY: "${AIDEPLOY_MAINTENANCE_TAILSCALE_POLICY:-ssh-equivalent}"
+      AIDEPLOY_MAINTENANCE_TAILSCALE_POLICY: "${AIDEPLOY_MAINTENANCE_TAILSCALE_POLICY:-disabled}"
     networks:
       - openclaw
       - supabase
@@ -43,7 +46,7 @@ services:
     restart: unless-stopped
     init: true
     ports:
-      - "{{this.agent_port}}:{{this.agent_port}}"
+      - "${AIDEPLOY_HOST_BIND:-127.0.0.1}:{{this.agent_port}}:{{this.agent_port}}"
     environment:
       AGENT_INDEX: "{{this.index}}"
       AGENT_SCHEMA: "{{this.schema_name}}"
@@ -54,6 +57,9 @@ services:
       ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
       DEPLOY_ID: "${DEPLOY_ID:?DEPLOY_ID is required}"
       AGENT_SERVICE_TOKEN: "${AGENT_SERVICE_TOKEN:?AGENT_SERVICE_TOKEN is required}"
+      OPENCLAW_AGENT_MAX_REQUEST_BODY_BYTES: "${OPENCLAW_AGENT_MAX_REQUEST_BODY_BYTES:-1048576}"
+      OPENCLAW_AGENT_API_CALL_ALLOWED_HOSTS: "${OPENCLAW_AGENT_API_CALL_ALLOWED_HOSTS:-}"
+      OPENCLAW_AGENT_ALLOW_PRIVATE_API_CALLS: "${OPENCLAW_AGENT_ALLOW_PRIVATE_API_CALLS:-false}"
       SUPABASE_URL: "${SUPABASE_URL:-http://supabase-kong:8000}"
       SUPABASE_PUBLIC_URL: "${SUPABASE_PUBLIC_URL:-http://localhost:8000}"
       SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:-}"
@@ -71,7 +77,7 @@ services:
     restart: unless-stopped
     init: true
     ports:
-      - "{{this.gateway_port}}:{{this.gateway_port}}"
+      - "${AIDEPLOY_HOST_BIND:-127.0.0.1}:{{this.gateway_port}}:{{this.gateway_port}}"
     environment:
       AGENT_INDEX: "{{this.index}}"
       GATEWAY_PORT: "{{this.gateway_port}}"
@@ -82,7 +88,7 @@ services:
       TELEGRAM_BOT_TOKEN: "${CHANNEL_{{this.index}}_TELEGRAM_TOKEN:-}"
       TELEGRAM_WEBHOOK_SECRET: "${CHANNEL_{{this.index}}_TELEGRAM_SECRET:-}"
       WHATSAPP_ACCESS_TOKEN: "${CHANNEL_{{this.index}}_WHATSAPP_TOKEN:-}"
-      WHATSAPP_VERIFY_TOKEN: "openclaw-verify-{{../deploy_id}}"
+      WHATSAPP_VERIFY_TOKEN: "${CHANNEL_{{this.index}}_WHATSAPP_VERIFY_TOKEN:-${WHATSAPP_VERIFY_TOKEN:-}}"
       WHATSAPP_PHONE_NUMBER_ID: "${CHANNEL_{{this.index}}_WHATSAPP_PHONE_ID:-}"
       WHATSAPP_APP_SECRET: "${CHANNEL_{{this.index}}_WHATSAPP_APP_SECRET:-}"
       SLACK_BOT_TOKEN: "${CHANNEL_{{this.index}}_SLACK_TOKEN:-}"
@@ -103,7 +109,7 @@ services:
     restart: unless-stopped
     init: true
     ports:
-      - "{{this.dashboard_port}}:{{this.dashboard_port}}"
+      - "${AIDEPLOY_HOST_BIND:-127.0.0.1}:{{this.dashboard_port}}:{{this.dashboard_port}}"
     environment:
       PORT: "{{this.dashboard_port}}"
       DASHBOARD_PORT: "{{this.dashboard_port}}"
@@ -116,7 +122,10 @@ services:
       GATEWAY_INTERNAL_URL: "http://gateway-{{this.index}}:{{this.gateway_port}}"
       AGENT_SERVICE_TOKEN: "${AGENT_SERVICE_TOKEN:?AGENT_SERVICE_TOKEN is required}"
       DASHBOARD_TOKEN: "${DASHBOARD_TOKEN:-}"
+      DASHBOARD_BOOTSTRAP_TOKEN: "${DASHBOARD_BOOTSTRAP_TOKEN:-}"
       AIDEPLOY_MAINTENANCE_TOKEN: "${AIDEPLOY_MAINTENANCE_TOKEN:-}"
+      AIDEPLOY_DASHBOARD_JSON_MAX_BODY_BYTES: "${AIDEPLOY_DASHBOARD_JSON_MAX_BODY_BYTES:-65536}"
+      AIDEPLOY_DASHBOARD_REQUEST_BODY_LIMIT: "${AIDEPLOY_DASHBOARD_REQUEST_BODY_LIMIT:-1mb}"
       SUPABASE_URL: "${SUPABASE_URL:-http://supabase-kong:8000}"
       SUPABASE_PUBLIC_URL: "${SUPABASE_PUBLIC_URL:-http://localhost:8000}"
       SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:-}"
@@ -124,7 +133,7 @@ services:
       SUPABASE_STORAGE_BUCKET: "${SUPABASE_STORAGE_BUCKET:-agent-files}"
       NEXT_PUBLIC_SUPABASE_URL: "${SUPABASE_PUBLIC_URL:-http://localhost:8000}"
       NEXT_PUBLIC_SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:-}"
-      AIDEPLOY_MAINTENANCE_TAILSCALE_POLICY: "${AIDEPLOY_MAINTENANCE_TAILSCALE_POLICY:-ssh-equivalent}"
+      AIDEPLOY_MAINTENANCE_TAILSCALE_POLICY: "${AIDEPLOY_MAINTENANCE_TAILSCALE_POLICY:-disabled}"
     depends_on:
       - agent-{{this.index}}
     networks:

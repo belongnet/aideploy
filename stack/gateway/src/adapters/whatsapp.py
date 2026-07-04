@@ -27,7 +27,7 @@ class WhatsAppAdapter:
         app_secret: str = "",
     ):
         self.access_token = access_token
-        self.verify_token = verify_token
+        self.verify_token = verify_token.strip()
         self.phone_number_id = phone_number_id
         self.app_secret = app_secret.strip()
 
@@ -38,7 +38,12 @@ class WhatsAppAdapter:
     def verify_webhook(self, mode: str, token: str, challenge: str) -> str | None:
         """Handle WhatsApp webhook verification (GET request).
         Returns the challenge string if valid, None otherwise."""
-        if mode == "subscribe" and token == self.verify_token:
+        if (
+            self.verify_token
+            and mode == "subscribe"
+            and token
+            and hmac.compare_digest(token, self.verify_token)
+        ):
             logger.info("WhatsApp webhook verified")
             return challenge
         logger.warning("WhatsApp webhook verification failed")

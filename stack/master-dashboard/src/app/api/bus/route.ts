@@ -14,6 +14,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { BusMessage } from "@/lib/types";
 import { rawQuery } from "@/lib/db";
+import { readJsonBody, requestBodyErrorResponse } from "@/lib/request-body";
 
 /* ------------------------------------------------------------------ */
 /*  GET handler                                                         */
@@ -44,7 +45,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const body = await readJsonBody<Record<string, unknown>>(request);
     const { action, older_than_days } = body as {
       action: string;
       older_than_days?: number;
@@ -67,6 +68,9 @@ export async function POST(request: NextRequest) {
     const deleted = rows[0]?.cleanup_bus_messages ?? 0;
     return NextResponse.json({ ok: true, deleted });
   } catch (err) {
+    const bodyError = requestBodyErrorResponse(err);
+    if (bodyError) return bodyError;
+
     console.error("[api/bus] POST error:", err);
     return NextResponse.json(
       { error: "Internal server error" },

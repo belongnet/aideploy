@@ -13,6 +13,7 @@
  */
 
 import { readFile } from "node:fs/promises";
+import net from "node:net";
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -143,11 +144,8 @@ const SUPPORTED_SCHEMES = new Set([
   "azure-kv",
 ]);
 
-const DOPPLER_API =
-  process.env.DOPPLER_API_BASE || "https://api.doppler.com/v3";
-const GCP_SM_API =
-  process.env.GCP_SECRET_MANAGER_API_BASE ||
-  "https://secretmanager.googleapis.com/v1";
+const DEFAULT_DOPPLER_API = "https://api.doppler.com/v3";
+const DEFAULT_GCP_SM_API = "https://secretmanager.googleapis.com/v1";
 const AZURE_KV_API_VERSION =
   process.env.AZURE_KEY_VAULT_API_VERSION || "7.4";
 
@@ -188,6 +186,156 @@ function splitQuery(value: string): {
     path: value.slice(0, i),
     query: new URLSearchParams(value.slice(i + 1)),
   };
+}
+
+function isPrivateOrReservedIpv4(host: string): boolean {
+  const octets = host.split(".").map((part) => Number(part));
+  if (
+    octets.length !== 4 ||
+    octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)
+  ) {
+    return true;
+  }
+  const [a = 0, b = 0, c = 0] = octets;
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 192 && b === 0) ||
+    (a === 192 && b === 0 && c === 2) ||
+    (a === 198 && (b === 18 || b === 19 || (b === 51 && c === 100))) ||
+    (a === 203 && b === 0 && c === 113) ||
+    a >= 224
+  );
+}
+
+function isPrivateOrReservedIpv6(host: string): boolean {
+  const lower = host.toLowerCase();
+  if (lower.startsWith("::ffff:")) {
+    const mapped = lower.slice("::ffff:".length);
+    return net.isIP(mapped) !== 4 || isPrivateOrReservedIpv4(mapped);
+  }
+  return (
+    lower === "::" ||
+    lower === "::1" ||
+    lower.startsWith("fc") ||
+    lower.startsWith("fd") ||
+    lower.startsWith("fe80") ||
+    lower.startsWith("ff") ||
+    lower.startsWith("2001:db8")
+  );
+}
+
+export function isPrivateOrReservedSecretApiHost(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (
+    !host ||
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local") ||
+    host.endsWith(".internal") ||
+    host.endsWith(".lan") ||
+    host.endsWith(".home")
+  ) {
+    return true;
+  }
+
+  const ipVersion = net.isIP(host);
+  if (!ipVersion && !host.includes(".")) return true;
+  if (ipVersion === 4) return isPrivateOrReservedIpv4(host);
+  if (ipVersion === 6) return isPrivateOrReservedIpv6(host);
+  return false;
+}
+
+export function trustedSecretApiBase(rawValue: string, label: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawValue);
+  } catch {
+    throw new SecretResolutionError(`${label} must be a valid URL`);
+  }
+
+  const host = parsed.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+
+  if (
+    parsed.protocol !== "https:" ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash ||
+    isPrivateOrReservedSecretApiHost(host)
+  ) {
+    throw new SecretResolutionError(
+      `${label} must be an https URL on a public provider host`,
+    );
+  }
+
+  const basePath =
+    parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/+$/g, "");
+  return `${parsed.origin}${basePath}`;
+}
+
+function dopplerApiBase(): string {
+  return trustedSecretApiBase(
+    process.env.DOPPLER_API_BASE || DEFAULT_DOPPLER_API,
+    "DOPPLER_API_BASE",
+  );
+}
+
+function gcpSecretManagerApiBase(): string {
+  return trustedSecretApiBase(
+    process.env.GCP_SECRET_MANAGER_API_BASE || DEFAULT_GCP_SM_API,
+    "GCP_SECRET_MANAGER_API_BASE",
+  );
+}
+
+function validateGcpResourceName(
+  project: string,
+  secret: string,
+  version: string,
+): string {
+  if (!/^[A-Za-z0-9._:-]{1,128}$/.test(project)) {
+    throw new SecretResolutionError(
+      "gcp-sm project id contains unsupported characters",
+    );
+  }
+  if (!/^[A-Za-z0-9_-]{1,255}$/.test(secret)) {
+    throw new SecretResolutionError(
+      "gcp-sm secret id contains unsupported characters",
+    );
+  }
+  if (!/^(latest|[0-9]+)$/.test(version)) {
+    throw new SecretResolutionError(
+      "gcp-sm secret version must be latest or a numeric version",
+    );
+  }
+  return `projects/${project}/secrets/${secret}/versions/${version}`;
+}
+
+function validateAzureKeyVaultReference(
+  vaultName: string,
+  secretName: string,
+  version?: string,
+): void {
+  if (!/^[A-Za-z][A-Za-z0-9-]{1,22}[A-Za-z0-9]$/.test(vaultName)) {
+    throw new SecretResolutionError(
+      "azure-kv vault name must be 3-24 letters, numbers, or hyphens and cannot end with a hyphen",
+    );
+  }
+  if (!/^[A-Za-z0-9-]{1,127}$/.test(secretName)) {
+    throw new SecretResolutionError(
+      "azure-kv secret name contains unsupported characters",
+    );
+  }
+  if (version && !/^[A-Za-z0-9-]{1,64}$/.test(version)) {
+    throw new SecretResolutionError(
+      "azure-kv secret version contains unsupported characters",
+    );
+  }
 }
 
 export function isSecretRef(value: string): boolean {
@@ -250,14 +398,24 @@ export function parseSecretRef(value: string): SecretReference | null {
         ? trimmed.slice(0, -":access".length)
         : trimmed;
       let resourceName: string;
+      const segs = clean.split("/").filter(Boolean).map(decode);
       if (clean.startsWith("projects/")) {
-        resourceName = clean;
+        if (
+          segs.length !== 6 ||
+          segs[0] !== "projects" ||
+          segs[2] !== "secrets" ||
+          segs[4] !== "versions"
+        ) {
+          throw new SecretResolutionError(
+            "gcp-sm:// ref must be projects/.../secrets/.../versions/...",
+          );
+        }
+        resourceName = validateGcpResourceName(segs[1], segs[3], segs[5]);
       } else {
-        const segs = clean.split("/").filter(Boolean).map(decode);
         if (segs.length === 2) {
-          resourceName = `projects/${segs[0]}/secrets/${segs[1]}/versions/latest`;
+          resourceName = validateGcpResourceName(segs[0], segs[1], "latest");
         } else if (segs.length === 3) {
-          resourceName = `projects/${segs[0]}/secrets/${segs[1]}/versions/${segs[2]}`;
+          resourceName = validateGcpResourceName(segs[0], segs[1], segs[2]);
         } else {
           throw new SecretResolutionError(
             "gcp-sm:// ref must be project/secret[/version]",
@@ -273,6 +431,7 @@ export function parseSecretRef(value: string): SecretReference | null {
         throw new SecretResolutionError(
           "azure-kv:// ref must be azure-kv://vault/secret[/version]",
         );
+      validateAzureKeyVaultReference(segs[0], segs[1], segs[2]);
       return {
         scheme: "azure-kv",
         vaultName: segs[0],
@@ -366,7 +525,7 @@ async function resolveDoppler(ref: DopplerRef): Promise<unknown> {
   if (config) params.set("config", config);
 
   const payload = (await httpJson(
-    `${DOPPLER_API}/configs/config/secrets/download?${params}`,
+    `${dopplerApiBase()}/configs/config/secrets/download?${params}`,
     { Authorization: `Bearer ${token}` },
   )) as Record<string, unknown>;
 
@@ -440,7 +599,7 @@ async function resolveGcpSm(ref: GcpSmRef): Promise<string> {
     );
 
   const payload = (await httpJson(
-    `${GCP_SM_API}/${ref.resourceName}:access`,
+    `${gcpSecretManagerApiBase()}/${ref.resourceName}:access`,
     { Authorization: `Bearer ${token}` },
   )) as { payload?: { data?: string } };
 

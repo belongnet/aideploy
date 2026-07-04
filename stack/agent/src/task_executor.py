@@ -10,9 +10,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+import ipaddress
+import socket
 import uuid
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 import httpx
 
@@ -25,6 +28,122 @@ logger = logging.getLogger(__name__)
 
 WORKSPACE_DIR = Path(os.environ.get("AGENT_WORKSPACE_DIR", "/workspace")).resolve()
 SITES_DIR = WORKSPACE_DIR / "sites"
+API_CALL_ALLOWED_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"}
+HTTP_HEADER_NAME_CHARS = frozenset(
+    "!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+)
+BLOCKED_API_CALL_HEADERS = {
+    "connection",
+    "content-length",
+    "host",
+    "proxy-authorization",
+    "proxy-authenticate",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+}
+
+
+def _truthy_env(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _split_env(name: str) -> set[str]:
+    return {
+        value.strip().lower()
+        for value in os.environ.get(name, "").split(",")
+        if value.strip()
+    }
+
+
+def _hostname_allowed_by_policy(hostname: str) -> bool:
+    allowed = _split_env("OPENCLAW_AGENT_API_CALL_ALLOWED_HOSTS")
+    host = hostname.strip().lower().rstrip(".")
+    if not host:
+        return False
+    return any(
+        host == entry.rstrip(".")
+        or (entry.startswith(".") and host.endswith(entry))
+        or (entry.startswith("*.") and host.endswith(entry[1:]))
+        for entry in allowed
+    )
+
+
+def _ip_allowed_for_api_call(ip: ipaddress._BaseAddress) -> bool:
+    return not (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    )
+
+
+def validate_api_call_url(raw_url: str) -> str:
+    url = raw_url.strip()
+    if any(char in url for char in "\r\n\0"):
+        raise ValueError("api_call url must not contain control characters")
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("api_call url must use http or https")
+    if parsed.username or parsed.password:
+        raise ValueError("api_call url must not include embedded credentials")
+    if not parsed.hostname:
+        raise ValueError("api_call url must include a hostname")
+
+    hostname = parsed.hostname.strip().lower().rstrip(".")
+    if _truthy_env("OPENCLAW_AGENT_ALLOW_PRIVATE_API_CALLS") or _hostname_allowed_by_policy(hostname):
+        return url
+
+    try:
+        addresses = socket.getaddrinfo(hostname, parsed.port, type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise ValueError("api_call hostname could not be resolved") from exc
+
+    checked: set[str] = set()
+    for family, _type, _proto, _canonname, sockaddr in addresses:
+        if family not in (socket.AF_INET, socket.AF_INET6):
+            continue
+        ip = ipaddress.ip_address(sockaddr[0])
+        checked.add(str(ip))
+        if not _ip_allowed_for_api_call(ip):
+            raise ValueError("api_call url resolves to a private or reserved address")
+    if not checked:
+        raise ValueError("api_call hostname did not resolve to an IP address")
+    return url
+
+
+def _valid_http_header_name(name: str) -> bool:
+    return bool(name) and all(char in HTTP_HEADER_NAME_CHARS for char in name)
+
+
+def _validate_http_header_value(value: str) -> None:
+    if any(char in value for char in "\r\n\0"):
+        raise ValueError("api_call header values must not contain control characters")
+
+
+def sanitize_api_call_headers(headers: Any) -> dict[str, str]:
+    if not isinstance(headers, dict):
+        raise ValueError("api_call headers must be an object")
+
+    sanitized: dict[str, str] = {}
+    for key, value in headers.items():
+        if not isinstance(key, str) or not key.strip():
+            continue
+        name = key.strip()
+        lower = name.lower()
+        if lower in BLOCKED_API_CALL_HEADERS or not _valid_http_header_name(name):
+            continue
+        if isinstance(value, str):
+            _validate_http_header_value(value)
+            sanitized[name] = value
+        elif value is not None:
+            normalized = str(value)
+            _validate_http_header_value(normalized)
+            sanitized[name] = normalized
+    return sanitized
 
 
 def _resolve_site_path(site: str, rel_path: str) -> Path:
@@ -122,14 +241,18 @@ class TaskExecutor:
         self, task: Task, context: dict[str, Any]
     ) -> dict[str, Any]:
         """Make an HTTP API call."""
-        url = task.action_config.get("url", "")
-        method = task.action_config.get("method", "POST").upper()
+        url = str(task.action_config.get("url", ""))
+        method = str(task.action_config.get("method", "POST")).upper()
         headers = task.action_config.get("headers", {})
-        body_template = task.action_config.get("body", "{}")
+        body_template = str(task.action_config.get("body", "{}"))
 
         # Interpolate context
         url = self._interpolate(url, context)
         body_str = self._interpolate(body_template, context)
+        url = validate_api_call_url(url)
+        if method not in API_CALL_ALLOWED_METHODS:
+            raise ValueError(f"api_call method is not allowed: {method}")
+        headers = sanitize_api_call_headers(headers)
 
         try:
             body = json.loads(body_str) if body_str else None

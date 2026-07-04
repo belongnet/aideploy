@@ -1,27 +1,32 @@
+import {
+  buildInternalServiceBaseUrlFromHostPort,
+  buildServiceRequestHeaders,
+  normalizeInternalPath,
+} from "./internal-request";
+
 const AGENT_HOST = process.env.AGENT_HOST || "agent-1";
 const AGENT_PORT = process.env.AGENT_PORT || "8101";
 const AGENT_SERVICE_TOKEN = process.env.AGENT_SERVICE_TOKEN || "";
+const AGENT_BASE_URL = buildInternalServiceBaseUrlFromHostPort(
+  AGENT_HOST,
+  AGENT_PORT,
+  "Agent internal URL",
+);
 
 function agentUrl(path: string): string {
-  const normalized = path.startsWith("/") ? path : `/${path}`;
-  const url = new URL(`http://${AGENT_HOST}:${AGENT_PORT}${normalized}`);
-  if (AGENT_SERVICE_TOKEN) {
-    url.searchParams.set("oc_service_token", AGENT_SERVICE_TOKEN);
-  }
-  return url.toString();
+  const normalized = normalizeInternalPath(path);
+  return new URL(normalized, `${AGENT_BASE_URL}/`).toString();
 }
 
 export async function agentRequest<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  const { headers: initHeaders, ...fetchInit } = init ?? {};
   const response = await fetch(agentUrl(path), {
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
+    ...fetchInit,
+    headers: buildServiceRequestHeaders(initHeaders, AGENT_SERVICE_TOKEN),
     cache: "no-store",
-    ...init,
   });
 
   const raw = await response.text();

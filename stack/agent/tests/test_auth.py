@@ -4,8 +4,9 @@ import hmac
 import json
 import time
 import unittest
+from unittest.mock import patch
 
-from src.auth import verify_supabase_jwt
+from src.auth import authenticate_request, verify_supabase_jwt
 
 
 def encode_segment(payload: dict[str, object]) -> str:
@@ -26,7 +27,33 @@ def build_token(payload: dict[str, object], secret: str) -> str:
     return f"{message}.{encoded_signature}"
 
 
+class FakeRequest:
+    def __init__(
+        self,
+        headers: dict[str, str] | None = None,
+        query_params: dict[str, str] | None = None,
+    ) -> None:
+        self.headers = headers or {}
+        self.query_params = query_params or {}
+
+
 class AuthHelpersTest(unittest.TestCase):
+    def test_authenticate_request_accepts_service_token_header(self) -> None:
+        request = FakeRequest(headers={"X-OpenClaw-Service-Token": "service-secret"})
+        with patch.dict("os.environ", {"AGENT_SERVICE_TOKEN": "service-secret"}, clear=False):
+            authorized, reason = authenticate_request(request)  # type: ignore[arg-type]
+
+        self.assertTrue(authorized)
+        self.assertEqual(reason, "service")
+
+    def test_authenticate_request_rejects_service_token_query_param(self) -> None:
+        request = FakeRequest(query_params={"oc_service_token": "service-secret"})
+        with patch.dict("os.environ", {"AGENT_SERVICE_TOKEN": "service-secret"}, clear=False):
+            authorized, reason = authenticate_request(request)  # type: ignore[arg-type]
+
+        self.assertFalse(authorized)
+        self.assertEqual(reason, "Authentication required")
+
     def test_verify_supabase_jwt_accepts_valid_authenticated_token(self) -> None:
         secret = "test-secret"
         token = build_token(

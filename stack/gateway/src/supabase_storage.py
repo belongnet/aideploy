@@ -8,10 +8,63 @@ import json
 import os
 import re
 import uuid
+from ipaddress import ip_address
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import httpx
+
+
+def _is_internal_http_host(hostname: str) -> bool:
+    host = hostname.strip("[]").rstrip(".").lower()
+    if not host:
+        return False
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    if host.endswith((".local", ".internal", ".lan")):
+        return True
+    if "." not in host:
+        return True
+    try:
+        parsed = ip_address(host)
+    except ValueError:
+        return False
+    if parsed.version == 4 and host.startswith("100."):
+        parts = host.split(".")
+        if len(parts) == 4 and 64 <= int(parts[1]) <= 127:
+            return True
+    return parsed.is_private or parsed.is_loopback or parsed.is_link_local
+
+
+def normalize_supabase_url(raw_url: str) -> str:
+    raw = str(raw_url or "").strip()
+    if not raw:
+        return ""
+    if any(ord(char) < 32 or ord(char) == 127 for char in raw):
+        raise ValueError("Supabase URL contains control characters")
+
+    parsed = urlparse(raw)
+    hostname = (parsed.hostname or "").rstrip(".").lower()
+    path = parsed.path.rstrip("/")
+    if (
+        not hostname
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or path
+    ):
+        raise ValueError("Supabase URL must be a clean origin URL")
+
+    origin_host = f"[{hostname}]" if ":" in hostname else hostname
+    origin_port = f":{parsed.port}" if parsed.port else ""
+
+    if parsed.scheme == "https":
+        return f"https://{origin_host}{origin_port}"
+    if parsed.scheme == "http" and _is_internal_http_host(hostname):
+        return f"http://{origin_host}{origin_port}"
+
+    raise ValueError("Supabase URL must use HTTPS unless it targets an internal deployment host")
 
 
 def _safe_filename(filename: str, fallback_ext: str = "") -> str:
@@ -30,7 +83,10 @@ class SupabaseStorageClient:
         bucket: str = "agent-files",
         deploy_id: str = "local",
     ) -> None:
-        self.url = url.rstrip("/")
+        try:
+            self.url = normalize_supabase_url(url)
+        except ValueError:
+            self.url = ""
         self.service_role_key = service_role_key.strip()
         self.bucket = bucket
         self.deploy_id = deploy_id

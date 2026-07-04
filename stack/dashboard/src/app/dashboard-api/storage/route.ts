@@ -11,7 +11,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-const AGENT_SERVICE_TOKEN = process.env.AGENT_SERVICE_TOKEN ?? "";
 const SUPABASE_URL = process.env.SUPABASE_URL ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
 const DEPLOY_ID = process.env.DEPLOY_ID ?? "";
@@ -29,22 +28,11 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const objectPath = searchParams.get("path");
   const requestedBucket = searchParams.get("bucket");
-  const providedServiceToken =
-    request.headers.get("X-OpenClaw-Service-Token")?.trim() ??
-    searchParams.get("oc_service_token")?.trim() ??
-    "";
 
   if (!objectPath) {
     return NextResponse.json(
       { error: "Missing 'path' query parameter" },
       { status: 400 },
-    );
-  }
-
-  if (!AGENT_SERVICE_TOKEN || providedServiceToken !== AGENT_SERVICE_TOKEN) {
-    return NextResponse.json(
-      { error: "Unauthorized storage signing request" },
-      { status: 401 },
     );
   }
 

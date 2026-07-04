@@ -14,6 +14,23 @@ import { supabase } from "./supabase";
 const DATABASE_URL =
   process.env.DATABASE_URL ??
   "postgresql://openclaw:openclaw@localhost:5432/openclaw";
+const PG_IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
+
+export function quoteIdentifier(identifier: string, label = "identifier"): string {
+  if (!PG_IDENTIFIER_RE.test(identifier)) {
+    throw new Error(`${label} contains unsupported characters`);
+  }
+  return `"${identifier}"`;
+}
+
+function selectList(select?: string): string {
+  const raw = select?.trim();
+  if (!raw || raw === "*") return "*";
+  return raw
+    .split(",")
+    .map((column) => quoteIdentifier(column.trim(), "select column"))
+    .join(", ");
+}
 
 /**
  * Execute a raw SQL query via pg (for complex/cross-schema queries).
@@ -55,20 +72,20 @@ export async function fromTable<T = Record<string, unknown>>(
   const sb = supabase();
   if (!sb) {
     // Fallback: build a simple SELECT via raw SQL
-    const cols = opts?.select ?? "*";
-    let sql = `SELECT ${cols} FROM public."${table}"`;
+    const cols = selectList(opts?.select);
+    let sql = `SELECT ${cols} FROM public.${quoteIdentifier(table, "table")}`;
     const params: unknown[] = [];
     let idx = 1;
     if (opts?.filters?.length) {
       const conds = opts.filters.map((f) => {
         const opMap = { eq: "=", gt: ">", gte: ">=", lt: "<", lte: "<=", neq: "!=" };
         params.push(f.value);
-        return `"${f.column}" ${opMap[f.op]} $${idx++}`;
+        return `${quoteIdentifier(f.column, "filter column")} ${opMap[f.op]} $${idx++}`;
       });
       sql += ` WHERE ${conds.join(" AND ")}`;
     }
     if (opts?.order) {
-      sql += ` ORDER BY "${opts.order.column}" ${opts.order.ascending ? "ASC" : "DESC"}`;
+      sql += ` ORDER BY ${quoteIdentifier(opts.order.column, "order column")} ${opts.order.ascending ? "ASC" : "DESC"}`;
     }
     if (opts?.limit) {
       sql += ` LIMIT ${opts.limit}`;

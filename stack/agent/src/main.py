@@ -92,6 +92,31 @@ DB_DSN = os.environ.get(
 ALLOWED_ORIGINS = parse_allowed_origins(
     os.environ.get("OPENCLAW_ALLOWED_ORIGINS")
 )
+DEFAULT_MAX_REQUEST_BODY_BYTES = 1024 * 1024
+
+
+def _parse_positive_int_env(*names: str, default: int) -> int:
+    for name in names:
+        raw = os.environ.get(name, "").strip()
+        if not raw:
+            continue
+        try:
+            parsed = int(raw)
+        except ValueError:
+            logger.warning("Ignoring invalid %s=%r; using %s", name, raw, default)
+            return default
+        if parsed > 0:
+            return parsed
+        logger.warning("Ignoring non-positive %s=%r; using %s", name, raw, default)
+        return default
+    return default
+
+
+MAX_REQUEST_BODY_BYTES = _parse_positive_int_env(
+    "OPENCLAW_AGENT_MAX_REQUEST_BODY_BYTES",
+    "AIDEPLOY_AGENT_MAX_REQUEST_BODY_BYTES",
+    default=DEFAULT_MAX_REQUEST_BODY_BYTES,
+)
 
 # ── Global State ──────────────────────────────────────────────
 
@@ -218,12 +243,123 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="OpenClaw Agent", lifespan=lifespan)
 
+
+class RequestBodyLimitMiddleware:
+    def __init__(self, app: Any, max_body_bytes: int) -> None:
+        self.app = app
+        self.max_body_bytes = max_body_bytes
+
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+
+        method = str(scope.get("method") or "").upper()
+        if method in {"GET", "HEAD", "OPTIONS"}:
+            await self.app(scope, receive, send)
+            return
+
+        headers = {
+            key.lower(): value
+            for key, value in scope.get("headers", [])
+            if isinstance(key, (bytes, bytearray))
+        }
+        content_length = headers.get(b"content-length")
+        if content_length is not None:
+            try:
+                raw_length = content_length.decode("ascii").strip()
+            except UnicodeDecodeError:
+                await self._send_error(
+                    scope,
+                    receive,
+                    send,
+                    400,
+                    "Invalid Content-Length header.",
+                )
+                return
+            if not raw_length.isdigit():
+                await self._send_error(
+                    scope,
+                    receive,
+                    send,
+                    400,
+                    "Invalid Content-Length header.",
+                )
+                return
+            if int(raw_length) > self.max_body_bytes:
+                await self._send_error(
+                    scope,
+                    receive,
+                    send,
+                    413,
+                    "Request body is too large.",
+                )
+                return
+
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            message = await receive()
+            if message.get("type") == "http.disconnect":
+                async def disconnected_receive() -> dict[str, Any]:
+                    return {"type": "http.disconnect"}
+
+                await self.app(scope, disconnected_receive, send)
+                return
+            if message.get("type") != "http.request":
+                continue
+
+            chunk = message.get("body", b"")
+            if chunk:
+                total += len(chunk)
+                if total > self.max_body_bytes:
+                    await self._send_error(
+                        scope,
+                        receive,
+                        send,
+                        413,
+                        "Request body is too large.",
+                    )
+                    return
+                chunks.append(chunk)
+
+            if not message.get("more_body", False):
+                break
+
+        body = b"".join(chunks)
+        replayed = False
+
+        async def replay_receive() -> dict[str, Any]:
+            nonlocal replayed
+            if replayed:
+                return {"type": "http.request", "body": b"", "more_body": False}
+            replayed = True
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        await self.app(scope, replay_receive, send)
+
+    async def _send_error(
+        self,
+        scope: dict[str, Any],
+        receive: Any,
+        send: Any,
+        status_code: int,
+        detail: str,
+    ) -> None:
+        response = JSONResponse(status_code=status_code, content={"detail": detail})
+        await response(scope, receive, send)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+app.add_middleware(
+    RequestBodyLimitMiddleware,
+    max_body_bytes=MAX_REQUEST_BODY_BYTES,
 )
 
 

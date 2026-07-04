@@ -4,6 +4,7 @@ import {
   readAutonomyEnabled,
   writeAutonomyEnabled,
 } from "@/lib/openclaw-runtime";
+import { readJsonBody, requestBodyErrorResponse } from "@/lib/request-body";
 
 export async function GET() {
   try {
@@ -23,7 +24,7 @@ export async function GET() {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const body = await request.json();
+    const body = await readJsonBody<Record<string, unknown>>(request);
     const enabled = body.autonomousMode ?? body.autonomous_mode;
     if (typeof enabled !== "boolean") {
       return NextResponse.json(
@@ -35,6 +36,9 @@ export async function PATCH(request: NextRequest) {
     await writeAutonomyEnabled(enabled);
     return NextResponse.json({ ok: true, autonomousMode: enabled });
   } catch (error) {
+    const bodyError = requestBodyErrorResponse(error);
+    if (bodyError) return bodyError;
+
     return NextResponse.json(
       {
         error:

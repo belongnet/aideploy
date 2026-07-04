@@ -6,8 +6,8 @@ output "server_ip" {
   description = "Public IP of the provisioned server"
   value = (
     var.cloud_provider == "digitalocean" ? module.digitalocean[0].server_ip :
-    var.cloud_provider == "aws"          ? module.aws[0].server_ip :
-    var.cloud_provider == "gcp"          ? module.gcp[0].server_ip :
+    var.cloud_provider == "aws" ? module.aws[0].server_ip :
+    var.cloud_provider == "gcp" ? module.gcp[0].server_ip :
     module.azure[0].server_ip
   )
 }
@@ -16,8 +16,8 @@ output "server_id" {
   description = "Provider-specific server identifier"
   value = (
     var.cloud_provider == "digitalocean" ? module.digitalocean[0].server_id :
-    var.cloud_provider == "aws"          ? module.aws[0].server_id :
-    var.cloud_provider == "gcp"          ? module.gcp[0].server_id :
+    var.cloud_provider == "aws" ? module.aws[0].server_id :
+    var.cloud_provider == "gcp" ? module.gcp[0].server_id :
     module.azure[0].server_id
   )
 }
@@ -53,8 +53,8 @@ output "agent_endpoints" {
 locals {
   server_ip = (
     var.cloud_provider == "digitalocean" ? module.digitalocean[0].server_ip :
-    var.cloud_provider == "aws"          ? module.aws[0].server_ip :
-    var.cloud_provider == "gcp"          ? module.gcp[0].server_ip :
+    var.cloud_provider == "aws" ? module.aws[0].server_ip :
+    var.cloud_provider == "gcp" ? module.gcp[0].server_ip :
     module.azure[0].server_ip
   )
 }

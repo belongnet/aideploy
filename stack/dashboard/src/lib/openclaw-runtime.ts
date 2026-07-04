@@ -165,6 +165,14 @@ function normalizeAllowedSenders(values: unknown): string[] {
   return out;
 }
 
+export function isTelegramPrivateChatId(value: unknown): boolean {
+  return /^[1-9]\d*$/.test(String(value ?? "").trim());
+}
+
+function normalizePrivilegedTelegramSenders(values: unknown): string[] {
+  return normalizeAllowedSenders(values).filter(isTelegramPrivateChatId);
+}
+
 function configuredPrimaryModelFromConfig(
   config: Record<string, unknown>,
 ): string {
@@ -412,7 +420,7 @@ function applyManagedCommandConfig(
     allowFromRaw && typeof allowFromRaw === "object" && !Array.isArray(allowFromRaw)
       ? { ...(allowFromRaw as Record<string, unknown>) }
       : {};
-  const normalizedTelegramAllowFrom = normalizeAllowedSenders(
+  const normalizedTelegramAllowFrom = normalizePrivilegedTelegramSenders(
     telegramAllowFrom ??
       ((((next.channels ?? {}) as Record<string, unknown>).telegram as
         | { allowFrom?: unknown }
@@ -547,7 +555,7 @@ export async function configureTelegramOwnerPrivilegedAccess(
   ownerChatId: string,
 ): Promise<boolean> {
   const normalizedOwnerChatId = ownerChatId.trim();
-  if (!normalizedOwnerChatId) return false;
+  if (!isTelegramPrivateChatId(normalizedOwnerChatId)) return false;
 
   const config = await readRawOpenClawConfig();
   const updated = applyManagedCommandConfig(config, [normalizedOwnerChatId]);

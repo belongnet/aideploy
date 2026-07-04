@@ -1,8 +1,8 @@
 /**
  * API client for the per-agent dashboard.
  *
- * All requests go to /api/* which Next.js rewrites to the agent backend
- * running on port 810N (configured via AGENT_PORT env var).
+ * All requests go to /api/*, which the Next.js server proxies to the agent
+ * backend running on port 810N (configured via AGENT_PORT env var).
  */
 
 /* ------------------------------------------------------------------ */
@@ -401,11 +401,14 @@ export const exportData = () =>
 export const shutDown = () =>
   request<{ ok: boolean }>("/api/system/shutdown", { method: "POST" });
 
-export const runPatch = (script: string) =>
+export const runPatch = (script: string, maintenanceToken: string) =>
   request<{ ok: boolean; output: string; exitCode?: number }>(
     "/dashboard-api/maintenance/run",
     {
       method: "POST",
+      headers: {
+        "x-aideploy-maintenance-token": maintenanceToken,
+      },
       body: JSON.stringify({ script }),
     },
   );
