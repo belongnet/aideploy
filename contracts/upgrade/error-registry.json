@@ -7,6 +7,18 @@
       "dashboard_action": "Retry preflight",
       "message": "The update cannot start until preflight checks pass."
     },
+    "UPD-1100": {
+      "category": "preflight",
+      "retryable": true,
+      "dashboard_action": "Free disk space and retry",
+      "message": "The update workdir does not have enough free disk space to safely start an update."
+    },
+    "UPD-1101": {
+      "category": "preflight",
+      "retryable": true,
+      "dashboard_action": "Restart Docker and retry",
+      "message": "Docker did not respond to a health check, so the update was refused before touching the runtime."
+    },
     "UPD-2000": {
       "category": "authorization",
       "retryable": false,
