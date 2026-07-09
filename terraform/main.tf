@@ -1,8 +1,10 @@
+# REFERENCE ONLY — not used by any live deploy path; see terraform/README.md.
 # ──────────────────────────────────────────────────────────────
 # OpenClaw Agent Launcher — Terraform Main
 # Provisions a single server on the user's chosen cloud provider.
-# Used only for AWS (API key flow). DO/GCP/Azure use direct API
-# calls via the provisioner for faster OAuth-based deploys.
+# Design reference only — no code path executes this module, including for
+# AWS: deployer.ts builds its own inline Terraform config for that flow.
+# See terraform/README.md for where deploys actually come from.
 # ──────────────────────────────────────────────────────────────
 
 terraform {
