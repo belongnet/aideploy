@@ -496,6 +496,27 @@ prune_remote_backups() {
   done
 }
 
+prune_local_backup_staging() {
+  local retention_days=7
+  local runs_dir="$STATE_DIR/runs"
+  if [ -z "$runs_dir" ] || [ ! -d "$runs_dir" ]; then
+    return 0
+  fi
+  local dry_run="${SUPABASE_BACKUP_PRUNE_DRY_RUN:-false}"
+  local action_word="cleaning up"
+  if [ "$dry_run" = "true" ]; then
+    action_word="[dry-run] would clean up"
+  fi
+  echo "[aideploy] Cleaning local backup staging older than ${retention_days}d in $runs_dir${dry_run:+ [dry-run=$dry_run]}"
+  local stale_entry
+  while IFS= read -r stale_entry; do
+    [ -n "$stale_entry" ] || continue
+    echo "[aideploy]   ${action_word} $stale_entry"
+    [ "$dry_run" = "true" ] && continue
+    rm -rf -- "$stale_entry" || true
+  done < <(find "$runs_dir" -mindepth 1 -maxdepth 1 -mtime "+${retention_days}" 2>/dev/null || true)
+}
+
 archive_runtime_files() {
   local list_file="$TMP_DIR/runtime-file-list.txt"
   : > "$list_file"
@@ -597,6 +618,7 @@ done
 
 cp "$MANIFEST" "$STATE_DIR/runs/${RUN_ID}-manifest.json"
 prune_remote_backups
+prune_local_backup_staging
 write_run_record "completed"
 upload_run_record || echo "[aideploy] WARNING: could not upload remote run status marker" >&2
 echo "[aideploy] Backup uploaded to $BACKUP_PROVIDER/$NATIVE_BUCKET/$(native_remote_path "$TIMESTAMP")"
