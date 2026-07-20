@@ -322,7 +322,12 @@ validate_tar_archive() {
   while IFS= read -r name; do
     name="${name#./}"
     case "$name" in
-      ""|".") [ "$purpose" = "storage" ] && continue || fail "$purpose archive contains empty path" ;;
+      ""|".")
+        if [ "$purpose" = "storage" ]; then
+          continue
+        fi
+        fail "$purpose archive contains empty path"
+        ;;
       /*|*\\*|".."|../*|*/../*|*/..) fail "$purpose archive contains unsafe path: $name" ;;
     esac
     if [ "$purpose" = "runtime" ] && ! runtime_path_allowed "$name"; then
@@ -604,8 +609,7 @@ verify_openclaw_health() {
     fail "curl is required to verify OpenClaw health after restore"
   fi
   echo "[aideploy] Verifying OpenClaw runtime health"
-  local attempt
-  for attempt in $(seq 1 30); do
+  for _ in {1..30}; do
     if curl -fsS --max-time 3 "$OPENCLAW_INTERNAL_URL" >/dev/null 2>&1; then
       return 0
     fi
@@ -626,8 +630,7 @@ verify_hermes_health() {
     fail "curl is required to verify Hermes gateway health after restore"
   fi
   echo "[aideploy] Verifying Hermes gateway health"
-  local attempt
-  for attempt in $(seq 1 30); do
+  for _ in {1..30}; do
     if curl -fsS --max-time 3 "$HERMES_API_HEALTH_URL" >/dev/null 2>&1; then
       return 0
     fi
