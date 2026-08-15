@@ -8,6 +8,10 @@ set -Eeuo pipefail
 RUNTIME="${1:?usage: runtime-smoke.sh <openclaw|hermes>}"
 HERMES_SMOKE_INSTALLER=""
 HERMES_SMOKE_ARCHIVE=""
+OPENCLAW_SMOKE_TEMP=""
+OPENCLAW_SMOKE_COMPOSE=""
+OPENCLAW_SMOKE_PROJECT=""
+OPENCLAW_SMOKE_IMAGE="aideploy-openclaw-smoke:local"
 CLI_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$(cd "$CLI_ROOT/.." && pwd)"
 if [ -d "$REPO_ROOT/stack/runtime" ]; then
@@ -34,6 +38,54 @@ cleanup_hermes_smoke() {
   if [ -n "$HERMES_SMOKE_ARCHIVE" ]; then
     rm -f "$HERMES_SMOKE_ARCHIVE"
   fi
+}
+
+cleanup_openclaw_smoke() {
+  local cleanup_status=0
+  local smoke_temp="$OPENCLAW_SMOKE_TEMP"
+  local compose_stopped=1
+  local owned_temp=0
+
+  # Prevent a cleanup failure from re-entering this trap after function-local
+  # state has unwound.
+  trap - EXIT
+  if [ -n "$OPENCLAW_SMOKE_COMPOSE" ] && [ -n "$OPENCLAW_SMOKE_PROJECT" ]; then
+    if ! AIDEPLOY_OPENCLAW_IMAGE="$OPENCLAW_SMOKE_IMAGE" \
+      AIDEPLOY_OPENCLAW_STATE="$smoke_temp/state" \
+      AIDEPLOY_WORKSPACE="$smoke_temp/workspace" \
+      OPENCLAW_GATEWAY_TOKEN=smoke-token \
+        docker compose -f "$OPENCLAW_SMOKE_COMPOSE" \
+          --project-name "$OPENCLAW_SMOKE_PROJECT" down -v --remove-orphans \
+          >/dev/null 2>&1; then
+      echo "OpenClaw smoke cleanup could not stop its compose project" >&2
+      cleanup_status=1
+      compose_stopped=0
+    fi
+  fi
+
+  if [ -n "$smoke_temp" ] && [ "$compose_stopped" -eq 1 ]; then
+    case "${smoke_temp##*/}" in aideploy-openclaw-smoke.*) owned_temp=1 ;; esac
+    if [ "$owned_temp" -ne 1 ] || [ ! -f "$smoke_temp/.aideploy-smoke-owner" ]; then
+      echo "OpenClaw smoke cleanup refused an unowned temp path: $smoke_temp" >&2
+      cleanup_status=1
+    elif ! rm -rf -- "$smoke_temp" 2>/dev/null; then
+      # Linux bind mounts can contain state created by the root-run runtime.
+      # Use the already-built local image to remove only the two owned mounts,
+      # then let the host user remove the empty fixture directory.
+      docker run --rm --user 0:0 --entrypoint sh \
+        -v "$smoke_temp:/cleanup" "$OPENCLAW_SMOKE_IMAGE" \
+        -c 'rm -rf /cleanup/state /cleanup/workspace' >/dev/null 2>&1 || true
+      if ! rm -rf -- "$smoke_temp"; then
+        echo "OpenClaw smoke cleanup could not remove $smoke_temp" >&2
+        cleanup_status=1
+      fi
+    fi
+  fi
+
+  OPENCLAW_SMOKE_TEMP=""
+  OPENCLAW_SMOKE_COMPOSE=""
+  OPENCLAW_SMOKE_PROJECT=""
+  return "$cleanup_status"
 }
 
 download_file() {
@@ -83,6 +135,7 @@ DOCKERSTUBEOF
   temp="$(mktemp -d "${TMPDIR:-/tmp}/aideploy-openclaw-smoke.XXXXXX")"
   project="aideploy-smoke-$$"
   install -d "$temp/state" "$temp/workspace"
+  : >"$temp/.aideploy-smoke-owner"
   cat >"$temp/state/openclaw.json" <<'JSONEOF'
 {
   "agents": {"defaults": {"elevatedDefault": "full"}},
@@ -95,18 +148,13 @@ DOCKERSTUBEOF
   }
 }
 JSONEOF
-  cleanup() {
-    AIDEPLOY_OPENCLAW_IMAGE=aideploy-openclaw-smoke:local \
-    AIDEPLOY_OPENCLAW_STATE="$temp/state" \
-    AIDEPLOY_WORKSPACE="$temp/workspace" \
-    OPENCLAW_GATEWAY_TOKEN=smoke-token \
-      docker compose -f "$compose" --project-name "$project" down -v --remove-orphans >/dev/null 2>&1 || true
-    rm -rf "$temp"
-  }
-  trap cleanup EXIT
+  OPENCLAW_SMOKE_TEMP="$temp"
+  OPENCLAW_SMOKE_COMPOSE="$compose"
+  OPENCLAW_SMOKE_PROJECT="$project"
+  trap cleanup_openclaw_smoke EXIT
 
-  docker build -t aideploy-openclaw-smoke:local "$root"
-  AIDEPLOY_OPENCLAW_IMAGE=aideploy-openclaw-smoke:local \
+  docker build -t "$OPENCLAW_SMOKE_IMAGE" "$root"
+  AIDEPLOY_OPENCLAW_IMAGE="$OPENCLAW_SMOKE_IMAGE" \
   AIDEPLOY_OPENCLAW_STATE="$temp/state" \
   AIDEPLOY_WORKSPACE="$temp/workspace" \
   OPENCLAW_GATEWAY_TOKEN=smoke-token \
@@ -115,16 +163,14 @@ JSONEOF
   for _ in $(seq 1 60); do
     if [ "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' aideploy-openclaw 2>/dev/null || true)" = "healthy" ]; then
       echo "OpenClaw boot smoke: PASS"
-      cleanup
-      trap - EXIT
+      cleanup_openclaw_smoke
       return 0
     fi
     sleep 3
   done
   docker logs --tail 160 aideploy-openclaw >&2 || true
   echo "OpenClaw boot smoke: FAIL" >&2
-  cleanup
-  trap - EXIT
+  cleanup_openclaw_smoke
   return 1
 }
 

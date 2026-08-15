@@ -388,6 +388,16 @@ describe('public workflows', () => {
     const smoke = text(join(cliRoot, 'scripts/runtime-smoke.sh'));
     expect(smoke).toMatch(/openclaw\) smoke_openclaw/);
     expect(smoke).toMatch(/hermes\) smoke_hermes/);
+    expect(smoke).toContain('cleanup_openclaw_smoke()');
+    expect(smoke).toContain('trap cleanup_openclaw_smoke EXIT');
+    const cleanupStart = smoke.indexOf('cleanup_openclaw_smoke()');
+    const trapDisarm = smoke.indexOf('trap - EXIT', cleanupStart);
+    const composeCleanup = smoke.indexOf('docker compose', cleanupStart);
+    expect(trapDisarm).toBeGreaterThan(cleanupStart);
+    expect(composeCleanup).toBeGreaterThan(trapDisarm);
+    expect(smoke).toContain('docker run --rm --user 0:0 --entrypoint sh');
+    expect(smoke).toContain("-c 'rm -rf /cleanup/state /cleanup/workspace'");
+    expect(smoke).not.toContain('trap cleanup EXIT');
     expect(smoke).toContain('Hermes gateway boot smoke: PASS');
   });
 

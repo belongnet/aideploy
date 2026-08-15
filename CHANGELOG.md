@@ -5,6 +5,11 @@ commit-by-commit notes and the exact npm tarball for each tag.
 
 ## Unreleased
 
+### Fixed
+
+- OpenClaw boot-smoke cleanup now handles root-owned Linux bind-mount state without re-entering an expired function-local EXIT trap.
+- CLI development dependencies now pin patched `brace-expansion` and `js-yaml` releases so a clean install has no known npm audit findings.
+
 ## [0.4.2-beta.1] - 2026-07-19
 
 - Public-repository extraction with retained history and final layered scans.
