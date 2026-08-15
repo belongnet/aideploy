@@ -1,0 +1,18 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+*.log
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+!terraform/self-host-digitalocean/.terraform.lock.hcl
+node_modules/
+dist/
+__pycache__/
+*.py[cod]
+
+# Generated only while packaging the CLI release.
+cli/assets/terraform/
+cli/assets/stack/

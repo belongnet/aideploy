@@ -1,0 +1,43 @@
+{
+  "name": "aideploy",
+  "version": "0.4.2-beta.1",
+  "description": "Production deployment kit for OpenClaw and Hermes agents, on your own cloud.",
+  "license": "FSL-1.1-ALv2",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/belongnet/aideploy.git",
+    "directory": "cli"
+  },
+  "homepage": "https://github.com/belongnet/aideploy#readme",
+  "bugs": {
+    "url": "https://github.com/belongnet/aideploy/issues"
+  },
+  "type": "module",
+  "bin": {
+    "aideploy": "dist/index.js"
+  },
+  "engines": {
+    "node": ">=18.3.0"
+  },
+  "files": [
+    "dist",
+    "assets",
+    "LICENSE.md",
+    "README.md",
+    "NOTICE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && chmod +x dist/index.js",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest",
+    "test:package": "npm run build && ./scripts/test-packed-bin.sh",
+    "test:version": "./scripts/verify-version-contract.sh",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/node": "^22.0.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.2",
+    "typescript": "^5.5.0"
+  }
+}

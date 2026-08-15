@@ -1,0 +1,366 @@
+# Live E2E against the exact npm version declared by the protected branch.
+# Scheduled runs exercise both runtimes and rotate providers every week, so all
+# six runtime/provider pairs are covered within three weeks. Trusted triggers
+# only: fork pull requests can never reach these credentials.
+name: e2e-live
+on:
+  schedule:
+    - cron: '17 6 * * 1' # Monday 06:17 UTC
+  workflow_dispatch:
+    inputs:
+      runtime:
+        description: runtime to test
+        type: choice
+        options: [both, openclaw, hermes]
+        default: both
+      provider:
+        description: AI provider (rotate follows the scheduled cadence)
+        type: choice
+        options: [rotate, openai, anthropic, kimi]
+        default: rotate
+
+permissions: {}
+concurrency:
+  group: e2e-live-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.contract.outputs.matrix }}
+      provider: ${{ steps.contract.outputs.provider }}
+      version: ${{ steps.contract.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned
+      - name: select the bounded coverage slot
+        id: contract
+        env:
+          REQUESTED_PROVIDER: ${{ inputs.provider || 'rotate' }}
+          REQUESTED_RUNTIME: ${{ inputs.runtime || 'both' }}
+        run: |
+          set -Eeuo pipefail
+          version="$(tr -d '\r\n' < VERSION)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]
+
+          provider="$REQUESTED_PROVIDER"
+          if [ "$provider" = rotate ]; then
+            providers=(openai anthropic kimi)
+            week="$(date -u +%V)"
+            provider="${providers[$((10#$week % 3))]}"
+          fi
+          case "$provider" in openai|anthropic|kimi) ;; *) exit 2 ;; esac
+
+          case "$REQUESTED_RUNTIME" in
+            both) matrix='{"runtime":["openclaw","hermes"]}' ;;
+            openclaw|hermes) matrix="{\"runtime\":[\"$REQUESTED_RUNTIME\"]}" ;;
+            *) exit 2 ;;
+          esac
+          {
+            echo "matrix=$matrix"
+            echo "provider=$provider"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
+          echo "Testing aideploy@$version with $provider across $REQUESTED_RUNTIME"
+
+  deploy-answer-destroy:
+    needs: prepare
+    runs-on: ubuntu-latest
+    environment: e2e
+    permissions:
+      actions: write
+      contents: read
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # pinned
+        with:
+          node-version: 22
+
+      - name: install the exact released npm tarball without lifecycle scripts
+        id: artifact
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -Eeuo pipefail
+          artifact_dir="$RUNNER_TEMP/aideploy-release"
+          install_dir="$RUNNER_TEMP/aideploy-install"
+          mkdir -p "$artifact_dir" "$install_dir"
+          npm pack --silent --json "aideploy@$RELEASE_VERSION" \
+            --pack-destination "$artifact_dir" > "$artifact_dir/pack.json"
+          tarball="$(find "$artifact_dir" -maxdepth 1 -type f -name 'aideploy-*.tgz' -print -quit)"
+          test -n "$tarball"
+          npm install --ignore-scripts --no-audit --no-fund --prefix "$install_dir" "$tarball"
+          cli="$install_dir/node_modules/.bin/aideploy"
+          package_root="$install_dir/node_modules/aideploy"
+          test -x "$cli"
+          test -d "$package_root/assets/stack/runtime"
+          test "$("$cli" --version)" = "$RELEASE_VERSION"
+          {
+            echo "cli=$cli"
+            echo "package_root=$package_root"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: install Telegram user probe dependency
+        run: python3 -m pip install --disable-pip-version-check -r stack/scripts/e2e-telegram-requirements.txt
+
+      - name: mint per-run Tailscale VM key and persist its cleanup handle
+        id: tailscale
+        env:
+          TAILSCALE_KEY_ID_FILE: ${{ runner.temp }}/tailscale-cleanup/key-id
+          TS_OAUTH_CLIENT_ID: ${{ secrets.E2E_TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_CLIENT_SECRET: ${{ secrets.E2E_TS_OAUTH_CLIENT_SECRET }}
+        run: cli/scripts/tailscale-e2e-auth-key.sh mint
+
+      - name: export Tailscale cleanup handle before running the release
+        id: key_artifact
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # pinned
+        with:
+          name: tailscale-key-${{ matrix.runtime }}
+          path: ${{ runner.temp }}/tailscale-cleanup/key-id
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: fail closed if the cleanup handle could not be isolated
+        if: steps.key_artifact.outcome != 'success'
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.E2E_TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_CLIENT_SECRET: ${{ secrets.E2E_TS_OAUTH_CLIENT_SECRET }}
+        run: |
+          cli/scripts/tailscale-e2e-auth-key.sh revoke "${{ steps.tailscale.outputs.key_id }}"
+          exit 1
+
+      - name: connect the E2E runner to the tailnet
+        uses: tailscale/github-action@6cae46e2d796f265265cfcf628b72a32b4d7cade # pinned
+        with:
+          oauth-client-id: ${{ secrets.E2E_TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.E2E_TS_OAUTH_CLIENT_SECRET }}
+          tags: tag:ci
+
+      - name: validate the selected provider credential exists
+        env:
+          AI_KEY: ${{ needs.prepare.outputs.provider == 'openai' && secrets.E2E_OPENAI_CREDENTIAL || needs.prepare.outputs.provider == 'anthropic' && secrets.E2E_ANTHROPIC_CREDENTIAL || secrets.E2E_KIMI_CREDENTIAL }}
+        run: test -n "$AI_KEY"
+
+      - name: deploy from a clean directory with no workspace-local state
+        id: deploy
+        env:
+          AIDEPLOY_HOME: ${{ runner.temp }}/aideploy-home-${{ matrix.runtime }}
+          AIDEPLOY_AI_KEY: ${{ needs.prepare.outputs.provider == 'openai' && secrets.E2E_OPENAI_CREDENTIAL || needs.prepare.outputs.provider == 'anthropic' && secrets.E2E_ANTHROPIC_CREDENTIAL || secrets.E2E_KIMI_CREDENTIAL }}
+          AIDEPLOY_AI_PROVIDER: ${{ needs.prepare.outputs.provider }}
+          AIDEPLOY_TG_TOKEN: ${{ secrets.E2E_TG_TOKEN }}
+          AIDEPLOY_TG_USER_ID: ${{ secrets.E2E_TG_CHAT_ID }}
+          AIDEPLOY_TS_KEY: ${{ steps.tailscale.outputs.auth_key }}
+          DIGITALOCEAN_TOKEN: ${{ secrets.E2E_DO_TOKEN }}
+          DEPLOY_ID: adp-e2e-${{ matrix.runtime }}-${{ github.run_id }}-${{ github.run_attempt }}
+          RELEASE_CLI: ${{ steps.artifact.outputs.cli }}
+        run: |
+          set -Eeuo pipefail
+          clean_room="$(mktemp -d "$RUNNER_TEMP/aideploy-stranger.XXXXXX")"
+          cd "$clean_room"
+          "$RELEASE_CLI" up \
+            --runtime "${{ matrix.runtime }}" --region nyc3 \
+            --deploy-id "$DEPLOY_ID" --yes-telemetry < /dev/null
+
+      - name: verify OpenClaw private browser sign-in, pairing, and live model response
+        if: matrix.runtime == 'openclaw'
+        env:
+          AIDEPLOY_HOME: ${{ runner.temp }}/aideploy-home-${{ matrix.runtime }}
+          DEPLOY_ID: adp-e2e-${{ matrix.runtime }}-${{ github.run_id }}-${{ github.run_attempt }}
+          PACKAGE_ROOT: ${{ steps.artifact.outputs.package_root }}
+        run: |
+          set -Eeuo pipefail
+          access_file="$AIDEPLOY_HOME/$DEPLOY_ID/access.json"
+          test "$(stat -c '%a' "$access_file")" = 600
+          dashboard_url="$(jq -er '.dashboardUrl' "$access_file")"
+          sign_in_url="$(jq -er '.browserSignInUrl' "$access_file")"
+          gateway_token="$(jq -er '.gatewayToken' "$access_file")"
+          echo "::add-mask::$gateway_token"
+          echo "::add-mask::$sign_in_url"
+
+          curl --fail --silent --show-error --connect-timeout 10 --max-time 30 \
+            "$dashboard_url/healthz" >/dev/null
+          curl --fail --silent --show-error --connect-timeout 10 --max-time 30 \
+            "$dashboard_url/_aideploy/status" \
+            | jq -e '.state == "ready" and .step == "complete"' >/dev/null
+          curl --fail --silent --show-error --connect-timeout 10 --max-time 30 \
+            "$sign_in_url" | grep -Fq 'openclaw.control.token.v1:'
+
+          compose="$PACKAGE_ROOT/assets/stack/runtime/openclaw/docker-compose.yml"
+          image="$(OPENCLAW_GATEWAY_TOKEN="$gateway_token" docker compose -f "$compose" config --images | head -n 1)"
+          [[ "$image" =~ @sha256:[a-f0-9]{64}$ ]]
+          gateway_url="${dashboard_url/https:/wss:}"
+          nonce="AIDEPLOY_OPENCLAW_BROWSER_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          session_id="browser-e2e-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rpc_params="$(jq -cn \
+            --arg message "Reply exactly: $nonce" \
+            --arg session_id "$session_id" \
+            --arg idempotency_key "$session_id-openclaw-e2e" \
+            '{
+              message: $message,
+              sessionId: $session_id,
+              sessionKey: ("agent:main:explicit:" + $session_id),
+              thinking: "off",
+              deliver: false,
+              timeout: 180,
+              idempotencyKey: $idempotency_key
+            }')"
+          client_home="$RUNNER_TEMP/openclaw-browser-client"
+          install -d -m 0777 "$client_home"
+
+          pairing_ready=false
+          : >"$RUNNER_TEMP/openclaw-browser-pairing.log"
+          for pairing_attempt in $(seq 1 10); do
+            if docker run --rm \
+              -e HOME=/client \
+              -e OPENCLAW_GATEWAY_URL="$gateway_url" \
+              -e OPENCLAW_GATEWAY_TOKEN="$gateway_token" \
+              -v "$client_home:/client" \
+              --entrypoint node \
+              "$image" \
+              /app/openclaw.mjs gateway call health \
+              --timeout 30000 \
+              --json \
+              >"$RUNNER_TEMP/openclaw-browser-health.json" \
+              2>>"$RUNNER_TEMP/openclaw-browser-pairing.log"; then
+              pairing_ready=true
+              break
+            fi
+            echo "Waiting for private read approval (attempt $pairing_attempt of 10)."
+            sleep 6
+          done
+          if [ "$pairing_ready" != true ]; then
+            tail -n 120 "$RUNNER_TEMP/openclaw-browser-pairing.log" >&2 || true
+            exit 1
+          fi
+
+          verified=false
+          : >"$RUNNER_TEMP/openclaw-browser-response.log"
+          for agent_attempt in 1 2 3 4 5 6; do
+            if docker run --rm \
+              -e HOME=/client \
+              -e OPENCLAW_GATEWAY_URL="$gateway_url" \
+              -e OPENCLAW_GATEWAY_TOKEN="$gateway_token" \
+              -v "$client_home:/client" \
+              --entrypoint node \
+              "$image" \
+              /app/openclaw.mjs gateway call agent \
+              --expect-final \
+              --timeout 195000 \
+              --json \
+              --params "$rpc_params" \
+              >"$RUNNER_TEMP/openclaw-browser-response.json" \
+              2>>"$RUNNER_TEMP/openclaw-browser-response.log" &&
+              grep -Fq "$nonce" "$RUNNER_TEMP/openclaw-browser-response.json"; then
+              verified=true
+              break
+            fi
+            echo "Waiting for private write approval or model response (attempt $agent_attempt of 6)."
+            sleep 8
+          done
+          if [ "$verified" != true ]; then
+            tail -n 100 "$RUNNER_TEMP/openclaw-browser-response.log" >&2 || true
+            exit 1
+          fi
+          echo "OpenClaw private browser and pairing contract: PASS"
+
+      - name: verify Hermes private owner sign-in
+        if: matrix.runtime == 'hermes'
+        env:
+          AIDEPLOY_HOME: ${{ runner.temp }}/aideploy-home-${{ matrix.runtime }}
+          DEPLOY_ID: adp-e2e-${{ matrix.runtime }}-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -Eeuo pipefail
+          access_file="$AIDEPLOY_HOME/$DEPLOY_ID/access.json"
+          test "$(stat -c '%a' "$access_file")" = 600
+          dashboard_url="$(jq -er '.dashboardUrl' "$access_file")"
+          owner_email="$(jq -er '.email' "$access_file")"
+          owner_password="$(jq -er '.password' "$access_file")"
+          echo "::add-mask::$owner_password"
+          request_file="$RUNNER_TEMP/hermes-owner-signin.json"
+          jq -n --arg email "$owner_email" --arg password "$owner_password" \
+            '{email:$email,password:$password}' >"$request_file"
+          curl --fail --silent --show-error --connect-timeout 10 --max-time 30 \
+            -H 'content-type: application/json' \
+            --data-binary "@$request_file" \
+            "$dashboard_url/api/v1/auths/signin" \
+            | jq -e '.token | type == "string" and length > 20' >/dev/null
+          echo "Hermes private owner sign-in contract: PASS"
+
+      - name: verify the deployed agent answers through Telegram
+        env:
+          E2E_TG_TOKEN: ${{ secrets.E2E_TG_TOKEN }}
+          E2E_TG_CHAT_ID: ${{ secrets.E2E_TG_CHAT_ID }}
+          E2E_TG_API_ID: ${{ secrets.E2E_TG_API_ID }}
+          E2E_TG_API_HASH: ${{ secrets.E2E_TG_API_HASH }}
+          E2E_TG_SESSION: ${{ secrets.E2E_TG_SESSION }}
+        run: ./stack/scripts/e2e-telegram-probe.sh "adp-e2e-${{ matrix.runtime }}-${{ github.run_id }}-${{ github.run_attempt }}"
+
+      - name: destroy through the same exact release and prove local scrubbing
+        if: always() && steps.artifact.outcome == 'success'
+        env:
+          AIDEPLOY_HOME: ${{ runner.temp }}/aideploy-home-${{ matrix.runtime }}
+          DIGITALOCEAN_TOKEN: ${{ secrets.E2E_DO_TOKEN }}
+          DEPLOY_ID: adp-e2e-${{ matrix.runtime }}-${{ github.run_id }}-${{ github.run_attempt }}
+          RELEASE_CLI: ${{ steps.artifact.outputs.cli }}
+        run: |
+          set -Eeuo pipefail
+          "$RELEASE_CLI" down "$DEPLOY_ID" < /dev/null
+          deploy_dir="$AIDEPLOY_HOME/$DEPLOY_ID"
+          test -f "$deploy_dir/destroyed.json"
+          for sensitive in terraform.tfstate terraform.tfstate.backup deploy.auto.tfvars.json secrets.auto.tfvars.json config.json access.json .terraform; do
+            test ! -e "$deploy_dir/$sensitive"
+          done
+
+  provider-cleanup:
+    name: provider-cleanup (${{ matrix.runtime }})
+    if: always()
+    needs: [prepare, deploy-answer-destroy]
+    runs-on: ubuntu-latest
+    environment: e2e
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned
+      - name: exact-tag provider sweep and zero-billable-resource proof
+        env:
+          DIGITALOCEAN_TOKEN: ${{ secrets.E2E_DO_TOKEN }}
+        run: cli/scripts/digitalocean-e2e-cleanup.sh "adp-e2e-${{ matrix.runtime }}-${{ github.run_id }}-${{ github.run_attempt }}"
+
+  revoke-tailscale-key:
+    name: revoke-tailscale-key (${{ matrix.runtime }})
+    if: always()
+    needs: [prepare, deploy-answer-destroy]
+    runs-on: ubuntu-latest
+    environment: e2e
+    permissions:
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned
+      - name: retrieve the pre-execution cleanup handle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # pinned
+        with:
+          name: tailscale-key-${{ matrix.runtime }}
+          path: ${{ runner.temp }}/tailscale-cleanup
+      - name: revoke the per-run key from an isolated job
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.E2E_TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_CLIENT_SECRET: ${{ secrets.E2E_TS_OAUTH_CLIENT_SECRET }}
+        run: |
+          set -Eeuo pipefail
+          key_id="$(tr -d '\r\n' < "$RUNNER_TEMP/tailscale-cleanup/key-id")"
+          [[ "$key_id" =~ ^[A-Za-z0-9_-]+$ ]]
+          cli/scripts/tailscale-e2e-auth-key.sh revoke "$key_id"

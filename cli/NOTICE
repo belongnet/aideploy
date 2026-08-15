@@ -1,0 +1,10 @@
+aideploy CLI
+Copyright 2026 aideploy contributors
+
+The CLI source is licensed under FSL-1.1-ALv2 (see LICENSE.md). The deployment
+assets vendored under assets/ are separately licensed under Apache-2.0 and are
+distributed with the root repository LICENSE and NOTICE.
+
+The CLI downloads OpenTofu (MPL-2.0), deploys OpenClaw (MIT), and can install
+Hermes Agent (MIT) plus gstack (MIT). Those projects are separate works and are
+not relicensed by this package.

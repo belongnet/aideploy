@@ -1,19 +1,16 @@
-# DEPRECATED
+# Legacy Compose services
 
-The services in this directory (agent, gateway, dashboard, master-dashboard, db) are
-from the original Docker Compose-based architecture. They are no longer used.
+`stack/agent`, `stack/gateway`, `stack/dashboard`, `stack/master-dashboard`,
+`stack/db`, and `stack/docker-compose.yml.tpl` are part of the original Python
+Compose architecture. They remain as Apache-2.0 reference code and are not
+executed by `aideploy up`.
 
-## New Architecture
+The live self-host sources are under `stack/runtime/`:
 
-Hermes Agent is now the user-facing default runtime, with OpenClaw available
-for multi-agent deployments. The live system deploys:
-- **Hermes Agent** as the default single-agent runtime
-- **OpenClaw** as the multi-agent runtime via the pinned `ghcr.io/openclaw/openclaw` gateway container
-- **Management Dashboard** (port 3000) — our multi-agent management UI in `provisioner/src/dashboard-generator.ts`
-- **Docker Compose services** for the gateway, dashboard, Supabase, billing proxy, and extra runtime slots
+- OpenClaw runs from a release-built, cosign-signed wrapper around a pinned
+  upstream image.
+- Hermes installs from a commit-specific URL with a pinned SHA-256, then adds
+  a commit-pinned gstack checkout.
 
-Each OpenClaw agent has isolated `.openclaw` state, credentials, workspace
-roots, and ports managed by the generated runtime contract.
-
-The code in this directory is preserved for reference only. It is not the
-OpenClaw runtime and should not be described as a public harness.
+The CLI vendors these live assets with
+`terraform/self-host-digitalocean/` into each npm release.

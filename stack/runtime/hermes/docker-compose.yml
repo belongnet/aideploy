@@ -1,0 +1,27 @@
+services:
+  open-webui:
+    image: ${HERMES_OPEN_WEBUI_IMAGE:?HERMES_OPEN_WEBUI_IMAGE is required}
+    container_name: aideploy-hermes-webui
+    restart: unless-stopped
+    init: true
+    ports:
+      - "127.0.0.1:3001:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      ENABLE_OLLAMA_API: "false"
+      ENABLE_OPENAI_API: "true"
+      OPENAI_API_BASE_URL: "http://host.docker.internal:8642/v1"
+      OPENAI_API_BASE_URLS: "http://host.docker.internal:8642/v1"
+      OPENAI_API_KEY: ${HERMES_GATEWAY_TOKEN:?HERMES_GATEWAY_TOKEN is required}
+      OPENAI_API_KEYS: ${HERMES_GATEWAY_TOKEN:?HERMES_GATEWAY_TOKEN is required}
+      DEFAULT_MODELS: ${HERMES_MODEL:?HERMES_MODEL is required}
+      DEFAULT_PINNED_MODELS: ${HERMES_MODEL:?HERMES_MODEL is required}
+      ENABLE_DIRECT_CONNECTIONS: "false"
+      WEBUI_AUTH: "true"
+      ENABLE_SIGNUP: "false"
+      WEBUI_ADMIN_NAME: "Owner"
+      WEBUI_ADMIN_EMAIL: ${HERMES_WEBUI_OWNER_EMAIL:?HERMES_WEBUI_OWNER_EMAIL is required}
+      WEBUI_ADMIN_PASSWORD: ${HERMES_WEBUI_OWNER_PASSWORD:?HERMES_WEBUI_OWNER_PASSWORD is required}
+    volumes:
+      - ${HERMES_OPEN_WEBUI_DATA:-/var/lib/aideploy/hermes-open-webui}:/app/backend/data

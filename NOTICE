@@ -1,0 +1,23 @@
+aideploy — production deployment kit for OpenClaw and Hermes agents
+Copyright 2026 aideploy contributors
+
+This repository is licensed under Apache-2.0 except the cli/ directory,
+which is licensed under FSL-1.1-ALv2 (see cli/LICENSE.md).
+
+This product deploys and integrates with the following upstream projects,
+which are separate works under their own licenses:
+
+- OpenClaw (https://github.com/openclaw/openclaw) — MIT License.
+  Deployed as the pinned upstream container image; not distributed in
+  this repository.
+- Hermes Agent (https://github.com/NousResearch/hermes-agent) — MIT License.
+  Fetched and installed from a checksum-verified source commit at deploy time;
+  not distributed in this repository.
+- gstack (https://github.com/garrytan/gstack) — MIT License.
+  Fetched at deploy time as a pinned commit for the Hermes runtime; not
+  distributed in this repository.
+- Open WebUI (https://github.com/open-webui/open-webui) — distributed under
+  its upstream license. Deployed as a digest-pinned container image for the
+  Hermes browser surface; not distributed in this repository.
+- OpenTofu (https://opentofu.org) — MPL-2.0. Downloaded by the CLI as a
+  pinned, checksum-verified binary; not distributed in this repository.

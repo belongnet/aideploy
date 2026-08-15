@@ -1,0 +1,90 @@
+# Credential-free CI. Fork pull requests can reach no secrets.
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  cli:
+    name: cli (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # pinned
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cli/package-lock.json
+      - run: npm ci
+        working-directory: cli
+      - run: npm run lint
+        working-directory: cli
+      - run: npm test
+        working-directory: cli
+      - run: npm run test:version
+        working-directory: cli
+      - run: npm run test:package
+        working-directory: cli
+
+  tofu-validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [digitalocean, aws, gcp, azure, self-host-digitalocean]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned
+      - uses: opentofu/setup-opentofu@9d84900f3238fab8cd84ce47d658d25dd008be2f # pinned
+      - run: tofu fmt -check -recursive
+        working-directory: terraform/${{ matrix.module }}
+      - run: tofu init -backend=false -input=false && tofu validate -no-color
+        working-directory: terraform/${{ matrix.module }}
+
+  runtime-smoke:
+    # OpenClaw boots its pinned image. Hermes checks the production installer
+    # bytes, installs the checksum-pinned source archive, boots the real API
+    # gateway, and polls /health without provider credentials.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [openclaw, hermes]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned
+      - run: ./cli/scripts/runtime-smoke.sh ${{ matrix.runtime }}
+        env:
+          SMOKE_UP: '1'
+
+  runtime-contracts:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned
+      - run: ./cli/scripts/backup-smoke.sh
+      - run: ./cli/scripts/tailscale-archive-smoke.sh
+      - run: ./cli/scripts/bake-tofu-checksums.sh --check
+
+  workflow-and-shell-contracts:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned
+      - name: shellcheck every shipped shell entry point
+        run: find cli/scripts stack/runtime -type f -name '*.sh' -print0 | xargs -0 shellcheck -S warning
+      - name: actionlint every public workflow
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.10@sha256:ef8299f97635c4c30e2298f48f30763ab782a4ad2c95b744649439a039421e36
