@@ -376,6 +376,8 @@ describe('public workflows', () => {
     expect(release).toContain('cli/scripts/verify-version-contract.sh');
     expect(release).toContain('npm view "aideploy@$version" dist.integrity');
     expect(release).toContain('gh release view "$GITHUB_REF_NAME"');
+    expect(release).toContain('gh release edit "$GITHUB_REF_NAME" --prerelease');
+    expect(release).toContain('release_flags+=(--prerelease)');
     expect(release).toContain('image: [openclaw-runtime]');
     expect(release).not.toContain('hermes-gateway');
     expect(release).toMatch(/gh release create/);

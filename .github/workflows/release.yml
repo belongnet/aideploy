@@ -196,9 +196,17 @@ jobs:
         run: |
           set -Eeuo pipefail
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+              gh release edit "$GITHUB_REF_NAME" --prerelease
+            fi
             gh release upload "$GITHUB_REF_NAME" /tmp/base-release/aideploy-base-* --clobber
           else
-            gh release create "$GITHUB_REF_NAME" /tmp/base-release/aideploy-base-* --verify-tag --generate-notes
+            release_flags=()
+            if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+              release_flags+=(--prerelease)
+            fi
+            gh release create "$GITHUB_REF_NAME" /tmp/base-release/aideploy-base-* \
+              --verify-tag --generate-notes "${release_flags[@]}"
           fi
 
   github-npm-release:
