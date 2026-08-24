@@ -77,6 +77,7 @@ jobs:
       - run: ./cli/scripts/backup-smoke.sh
       - run: ./cli/scripts/tailscale-archive-smoke.sh
       - run: ./cli/scripts/bake-tofu-checksums.sh --check
+      - run: ./scripts/test-create-base-release.sh
 
   workflow-and-shell-contracts:
     runs-on: ubuntu-latest
@@ -85,6 +86,6 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned
       - name: shellcheck every shipped shell entry point
-        run: find cli/scripts stack/runtime -type f -name '*.sh' -print0 | xargs -0 shellcheck -S warning
+        run: find cli/scripts stack/runtime scripts -type f -name '*.sh' -print0 | xargs -0 shellcheck -S warning
       - name: actionlint every public workflow
         run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.10@sha256:ef8299f97635c4c30e2298f48f30763ab782a4ad2c95b744649439a039421e36

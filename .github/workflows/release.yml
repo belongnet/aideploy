@@ -56,6 +56,7 @@ jobs:
           retention-days: 7
 
   npm:
+    if: vars.AIDEPLOY_PUBLISH_NPM == 'true'
     needs: images
     runs-on: ubuntu-latest
     environment: release
@@ -132,8 +133,76 @@ jobs:
           overwrite: true
           retention-days: 30
 
-  github-release:
-    needs: npm
+  base-release:
+    needs: images
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # pinned
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # pinned
+      - name: create the deterministic hosted-build base
+        run: |
+          set -Eeuo pipefail
+          mkdir -p /tmp/base-release
+          scripts/create-base-release.sh \
+            --repo . \
+            --out /tmp/base-release \
+            --tag "$GITHUB_REF_NAME" \
+            --image-digest "$(cat /tmp/digests/openclaw-runtime)"
+          archive="/tmp/base-release/aideploy-base-${GITHUB_REF_NAME}.tgz"
+          manifest="/tmp/base-release/aideploy-base-${GITHUB_REF_NAME}.manifest.json"
+          cosign sign-blob --yes \
+            --bundle "${archive}.sigstore.json" \
+            "$archive"
+          cosign sign-blob --yes \
+            --bundle "${manifest}.sigstore.json" \
+            "$manifest"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # pinned
+        with:
+          name: base-release
+          path: /tmp/base-release/aideploy-base-*
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 30
+
+  github-base-release:
+    needs: base-release
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # pinned
+        with:
+          name: base-release
+          path: /tmp/base-release
+      - name: create or repair the versioned GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -Eeuo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" /tmp/base-release/aideploy-base-* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" /tmp/base-release/aideploy-base-* --verify-tag --generate-notes
+          fi
+
+  github-npm-release:
+    needs: [npm, github-base-release]
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -144,7 +213,7 @@ jobs:
         with:
           name: npm-package
           path: /tmp/npm-release
-      - name: create or repair the versioned GitHub Release
+      - name: attach the exact npm tarball to the existing GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -152,8 +221,5 @@ jobs:
           set -Eeuo pipefail
           tarball="$(find /tmp/npm-release -maxdepth 1 -name 'aideploy-*.tgz' -print -quit)"
           test -n "$tarball"
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$tarball" --clobber
-          else
-            gh release create "$GITHUB_REF_NAME" "$tarball" --verify-tag --generate-notes
-          fi
+          gh release view "$GITHUB_REF_NAME" >/dev/null
+          gh release upload "$GITHUB_REF_NAME" "$tarball" --clobber

@@ -115,6 +115,12 @@ cosign verify ghcr.io/belongnet/aideploy-openclaw-runtime@sha256:... \
 Hermes is installed from a commit-specific URL whose SHA-256 lives in
 `stack/runtime/hermes/manifest.json`; the bootstrap refuses a mismatch.
 
+Every tagged release also publishes a deterministic
+`aideploy-base-vX.Y.Z.tgz`, its manifest, checksum, and keyless Sigstore bundles.
+Hosted consumers pin both file hashes and verify the signer identity against
+this repository's tag-triggered `release.yml`; they never build from a mutable
+branch or GitHub's generated source archive.
+
 ## Attribution
 
 Built on the MIT-licensed [OpenClaw](https://github.com/openclaw/openclaw) and
