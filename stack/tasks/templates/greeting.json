@@ -1,0 +1,10 @@
+{
+  "name": "Welcome Greeting",
+  "description": "Send a friendly welcome message when someone starts a new conversation.",
+  "trigger_type": "conversation_start",
+  "trigger_config": {},
+  "action_type": "reply",
+  "action_config": {
+    "prompt": "A new user named {participant_name} just started chatting. Send a warm, friendly greeting and ask how you can help them today. Keep it brief and natural."
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.aideploy.co/upgrade/capability-token.schema.json",
+  "title": "AI Deploy Update Capability Token Claims",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "deploy_id",
+    "run_id",
+    "manifest_digest",
+    "operation",
+    "actor",
+    "nonce",
+    "exp"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "aideploy-update-capability-v1"
+    },
+    "deploy_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 96,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "manifest_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-fA-F0-9]{64}$"
+    },
+    "operation": {
+      "enum": ["preflight", "apply", "rollback"]
+    },
+    "actor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "nonce": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 128
+    },
+    "exp": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

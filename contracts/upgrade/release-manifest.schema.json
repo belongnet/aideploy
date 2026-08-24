@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.aideploy.co/upgrade/release-manifest.schema.json",
+  "title": "AI Deploy Release Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "release_id",
+    "channel",
+    "compatibility",
+    "artifacts",
+    "migrations",
+    "preflight",
+    "release_notes"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "aideploy-release-v1"
+    },
+    "release_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}-[0-9]+$"
+    },
+    "channel": {
+      "enum": ["stable", "preview", "emergency", "pinned"]
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min_runtime_contract", "min_updater"],
+      "properties": {
+        "min_runtime_contract": {
+          "type": "string",
+          "minLength": 1
+        },
+        "min_updater": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requires_command_center": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "url", "sha256"],
+            "properties": {
+              "kind": {
+                "const": "compose_bundle"
+              },
+              "url": {
+                "type": "string",
+                "format": "uri"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-fA-F0-9]{64}$"
+              },
+              "signature": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "name", "digest"],
+            "properties": {
+              "kind": {
+                "const": "container_image"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "digest": {
+                "type": "string",
+                "pattern": "^sha256:[a-fA-F0-9]{64}$"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "migrations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "type",
+          "tier",
+          "reversible",
+          "estimated_seconds",
+          "requires_backup"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9]{8}_[a-z0-9_]+$"
+          },
+          "type": {
+            "enum": ["sql", "compose", "data", "script"]
+          },
+          "tier": {
+            "enum": ["tier0", "tier1", "tier2"]
+          },
+          "reversible": {
+            "type": "boolean"
+          },
+          "estimated_seconds": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "requires_backup": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "preflight": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "min_disk_free_mb",
+        "min_memory_mb",
+        "requires_docker_compose",
+        "requires_tailscale"
+      ],
+      "properties": {
+        "min_disk_free_mb": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "min_memory_mb": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "requires_docker_compose": {
+          "type": "boolean"
+        },
+        "requires_tailscale": {
+          "type": "boolean"
+        },
+        "max_expected_downtime_seconds": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "release_notes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary",
+        "risk_level",
+        "affected_services",
+        "customer_visible_changes",
+        "breaking_changes",
+        "migration_impact",
+        "rollback_expectation",
+        "known_issues"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "risk_level": {
+          "enum": ["low", "medium", "high", "operator_assisted"]
+        },
+        "affected_services": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "customer_visible_changes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "breaking_changes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "migration_impact": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rollback_expectation": {
+          "enum": ["automatic", "manual", "blocked"]
+        },
+        "known_issues": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

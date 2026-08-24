@@ -1,0 +1,171 @@
+services:
+  master-dashboard:
+    build: ./master-dashboard
+    container_name: openclaw-master-dashboard
+    restart: unless-stopped
+    ports:
+      - "${AIDEPLOY_HOST_BIND:-127.0.0.1}:3000:3000"
+    environment:
+      PORT: "3000"
+      DATABASE_URL: "postgresql://postgres:${DB_PASSWORD:?DB_PASSWORD is required}@${DB_HOST:-supabase-db}:${DB_PORT:-5432}/postgres"
+      AGENT_COUNT: "${AGENT_COUNT:-1}"
+      DEPLOY_ID: "${DEPLOY_ID:-local-dev}"
+      AGENT_SERVICE_TOKEN: "${AGENT_SERVICE_TOKEN:?AGENT_SERVICE_TOKEN is required}"
+      AGENT_INTERNAL_HOST_TEMPLATE: "agent-{index1}"
+      DASHBOARD_TOKEN: "${DASHBOARD_TOKEN:-}"
+      DASHBOARD_BOOTSTRAP_TOKEN: "${DASHBOARD_BOOTSTRAP_TOKEN:-}"
+      AIDEPLOY_MAINTENANCE_TOKEN: "${AIDEPLOY_MAINTENANCE_TOKEN:-}"
+      AIDEPLOY_MAINTENANCE_TAILSCALE_POLICY: "${AIDEPLOY_MAINTENANCE_TAILSCALE_POLICY:-disabled}"
+      AIDEPLOY_DASHBOARD_JSON_MAX_BODY_BYTES: "${AIDEPLOY_DASHBOARD_JSON_MAX_BODY_BYTES:-65536}"
+      AIDEPLOY_DASHBOARD_REQUEST_BODY_LIMIT: "${AIDEPLOY_DASHBOARD_REQUEST_BODY_LIMIT:-1mb}"
+      SUPABASE_URL: "${SUPABASE_URL:-http://supabase-kong:8000}"
+      SUPABASE_PUBLIC_URL: "${SUPABASE_PUBLIC_URL:-http://localhost:8000}"
+      SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:-}"
+      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-}"
+    networks:
+      - openclaw
+      - supabase
+
+  agent-1:
+    build: ./agent
+    container_name: openclaw-agent-1
+    restart: unless-stopped
+    environment:
+      AGENT_INDEX: "0"
+      AGENT_SCHEMA: "agent_1"
+      AGENT_NAME: "Local Agent"
+      AGENT_PORT: "8101"
+      GATEWAY_PORT: "8081"
+      DASHBOARD_PORT: "3001"
+      DATABASE_URL: "postgresql://postgres:${DB_PASSWORD:?DB_PASSWORD is required}@${DB_HOST:-supabase-db}:${DB_PORT:-5432}/postgres"
+      DB_PASSWORD: "${DB_PASSWORD:?DB_PASSWORD is required}"
+      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
+      DEPLOY_ID: "${DEPLOY_ID:-local-dev}"
+      AGENT_SERVICE_TOKEN: "${AGENT_SERVICE_TOKEN:?AGENT_SERVICE_TOKEN is required}"
+      OPENCLAW_AGENT_MAX_REQUEST_BODY_BYTES: "${OPENCLAW_AGENT_MAX_REQUEST_BODY_BYTES:-1048576}"
+      OPENCLAW_AGENT_API_CALL_ALLOWED_HOSTS: "${OPENCLAW_AGENT_API_CALL_ALLOWED_HOSTS:-}"
+      OPENCLAW_AGENT_ALLOW_PRIVATE_API_CALLS: "${OPENCLAW_AGENT_ALLOW_PRIVATE_API_CALLS:-false}"
+      SUPABASE_URL: "${SUPABASE_URL:-http://supabase-kong:8000}"
+      SUPABASE_PUBLIC_URL: "${SUPABASE_PUBLIC_URL:-http://localhost:8000}"
+      SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:-}"
+      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-}"
+      SUPABASE_JWT_SECRET: "${SUPABASE_JWT_SECRET:-}"
+      OPENCLAW_QMD_BASE_URL: "${OPENCLAW_QMD_BASE_URL:-}"
+    networks:
+      - openclaw
+      - supabase
+
+  gateway-1:
+    build: ./gateway
+    container_name: openclaw-gateway-1
+    restart: unless-stopped
+    ports:
+      - "${AIDEPLOY_HOST_BIND:-127.0.0.1}:8081:8081"
+    environment:
+      AGENT_INDEX: "0"
+      GATEWAY_PORT: "8081"
+      AGENT_URL: "http://agent-1:8101"
+      DASHBOARD_INTERNAL_URL: "http://dashboard-1:3001"
+      DEPLOY_ID: "${DEPLOY_ID:-local-dev}"
+      AGENT_SERVICE_TOKEN: "${AGENT_SERVICE_TOKEN:?AGENT_SERVICE_TOKEN is required}"
+      TELEGRAM_BOT_TOKEN: "${CHANNEL_1_TELEGRAM_TOKEN:-}"
+      TELEGRAM_WEBHOOK_SECRET: "${CHANNEL_1_TELEGRAM_SECRET:-}"
+      WHATSAPP_ACCESS_TOKEN: "${CHANNEL_1_WHATSAPP_TOKEN:-}"
+      WHATSAPP_VERIFY_TOKEN: "${CHANNEL_1_WHATSAPP_VERIFY_TOKEN:-${WHATSAPP_VERIFY_TOKEN:-}}"
+      WHATSAPP_PHONE_NUMBER_ID: "${CHANNEL_1_WHATSAPP_PHONE_ID:-}"
+      WHATSAPP_APP_SECRET: "${CHANNEL_1_WHATSAPP_APP_SECRET:-}"
+      SLACK_BOT_TOKEN: "${CHANNEL_1_SLACK_TOKEN:-}"
+      SLACK_SIGNING_SECRET: "${CHANNEL_1_SLACK_SECRET:-}"
+      SUPABASE_URL: "${SUPABASE_URL:-http://supabase-kong:8000}"
+      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-}"
+      SUPABASE_STORAGE_BUCKET: "${SUPABASE_STORAGE_BUCKET:-agent-files}"
+      SUPABASE_STORAGE_MAX_BYTES: "${SUPABASE_STORAGE_MAX_BYTES:-26214400}"
+      # KMS / secret provider credentials (optional)
+      DOPPLER_TOKEN: "${DOPPLER_TOKEN:-}"
+      DOPPLER_PROJECT: "${DOPPLER_PROJECT:-}"
+      DOPPLER_CONFIG: "${DOPPLER_CONFIG:-}"
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
+      AWS_SESSION_TOKEN: "${AWS_SESSION_TOKEN:-}"
+      AWS_REGION: "${AWS_REGION:-}"
+      GCP_SECRET_MANAGER_TOKEN: "${GCP_SECRET_MANAGER_TOKEN:-}"
+      AZURE_KEY_VAULT_TOKEN: "${AZURE_KEY_VAULT_TOKEN:-}"
+    depends_on:
+      - agent-1
+    networks:
+      - openclaw
+      - supabase
+
+  dashboard-1:
+    build: ./dashboard
+    container_name: openclaw-dashboard-1
+    restart: unless-stopped
+    ports:
+      - "${AIDEPLOY_HOST_BIND:-127.0.0.1}:3001:3001"
+    environment:
+      PORT: "3001"
+      DASHBOARD_PORT: "3001"
+      AGENT_INDEX: "0"
+      AGENT_NAME: "Local Agent"
+      AGENT_HOST: "agent-1"
+      AGENT_PORT: "8101"
+      DEPLOY_ID: "${DEPLOY_ID:-local-dev}"
+      GATEWAY_INTERNAL_URL: "http://gateway-1:8081"
+      AGENT_SERVICE_TOKEN: "${AGENT_SERVICE_TOKEN:?AGENT_SERVICE_TOKEN is required}"
+      DASHBOARD_TOKEN: "${DASHBOARD_TOKEN:-}"
+      DASHBOARD_BOOTSTRAP_TOKEN: "${DASHBOARD_BOOTSTRAP_TOKEN:-}"
+      AIDEPLOY_MAINTENANCE_TOKEN: "${AIDEPLOY_MAINTENANCE_TOKEN:-}"
+      AIDEPLOY_MAINTENANCE_TAILSCALE_POLICY: "${AIDEPLOY_MAINTENANCE_TAILSCALE_POLICY:-disabled}"
+      AIDEPLOY_DASHBOARD_JSON_MAX_BODY_BYTES: "${AIDEPLOY_DASHBOARD_JSON_MAX_BODY_BYTES:-65536}"
+      AIDEPLOY_DASHBOARD_REQUEST_BODY_LIMIT: "${AIDEPLOY_DASHBOARD_REQUEST_BODY_LIMIT:-1mb}"
+      SUPABASE_URL: "${SUPABASE_URL:-http://supabase-kong:8000}"
+      SUPABASE_PUBLIC_URL: "${SUPABASE_PUBLIC_URL:-http://localhost:8000}"
+      SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:-}"
+      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-}"
+      SUPABASE_STORAGE_BUCKET: "${SUPABASE_STORAGE_BUCKET:-agent-files}"
+      NEXT_PUBLIC_SUPABASE_URL: "${SUPABASE_PUBLIC_URL:-http://localhost:8000}"
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:-}"
+      # KMS / secret provider credentials (optional)
+      DOPPLER_TOKEN: "${DOPPLER_TOKEN:-}"
+      DOPPLER_PROJECT: "${DOPPLER_PROJECT:-}"
+      DOPPLER_CONFIG: "${DOPPLER_CONFIG:-}"
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
+      AWS_SESSION_TOKEN: "${AWS_SESSION_TOKEN:-}"
+      AWS_REGION: "${AWS_REGION:-}"
+      GCP_SECRET_MANAGER_TOKEN: "${GCP_SECRET_MANAGER_TOKEN:-}"
+      AZURE_KEY_VAULT_TOKEN: "${AZURE_KEY_VAULT_TOKEN:-}"
+      AIDEPLOY_RUNTIME_SECRETS_ROOT: "${AIDEPLOY_RUNTIME_SECRETS_ROOT:-/run/aideploy-secrets}"
+      AIDEPLOY_HOME_ROOT: "${AIDEPLOY_HOME_ROOT:-/home/aideploy}"
+    depends_on:
+      - agent-1
+    networks:
+      - openclaw
+      - supabase
+
+  qmd:
+    profiles: ["qmd"]
+    build: ./qmd
+    container_name: openclaw-qmd
+    restart: unless-stopped
+    ports:
+      - "${AIDEPLOY_HOST_BIND:-127.0.0.1}:4318:4318"
+    environment:
+      PORT: "4318"
+      QMD_HOME: "/var/lib/qmd"
+      QMD_REPO_ROOT: "/workspace/repo"
+      QMD_EXTRA_PATHS: "/workspace/repo/docs"
+    volumes:
+      - ..:/workspace/repo:ro
+      - qmddata:/var/lib/qmd
+
+volumes:
+  qmddata:
+    driver: local
+
+networks:
+  openclaw:
+    driver: bridge
+  supabase:
+    external: true
+    name: supabase_default

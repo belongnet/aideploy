@@ -1,0 +1,31 @@
+services:
+  openclaw:
+    # RELEASE_TAG is intentionally unusable. release.yml replaces this whole
+    # reference with the keylessly signed release digest before npm publish.
+    image: ${AIDEPLOY_OPENCLAW_IMAGE:-ghcr.io/AIDEPLOY_OWNER/aideploy-openclaw-runtime:RELEASE_TAG}
+    container_name: aideploy-openclaw
+    restart: unless-stopped
+    init: true
+    network_mode: host
+    user: "0:0"
+    working_dir: /workspace
+    environment:
+      HOME: /state
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:?OPENCLAW_GATEWAY_TOKEN is required}
+    command: >-
+      sh -lc "umask 0002 && mkdir -p /state/.openclaw /workspace &&
+      exec node /app/openclaw.mjs gateway --allow-unconfigured --bind loopback
+      --port 18789 --verbose"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - 'const net=require("net");const s=net.connect(18789,"127.0.0.1");s.on("connect",()=>{s.destroy();process.exit(0)});s.on("error",()=>process.exit(1));setTimeout(()=>process.exit(1),5000)'
+      interval: 10s
+      timeout: 6s
+      start_period: 30s
+      retries: 12
+    volumes:
+      - ${AIDEPLOY_OPENCLAW_STATE:-/var/lib/aideploy/openclaw}:/state/.openclaw
+      - ${AIDEPLOY_WORKSPACE:-/var/lib/aideploy/workspace}:/workspace

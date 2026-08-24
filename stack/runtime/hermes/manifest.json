@@ -1,0 +1,12 @@
+{
+  "releaseTag": "v2026.4.23",
+  "sourceRepository": "https://github.com/NousResearch/hermes-agent.git",
+  "sourceCommit": "bf196a3fc0fd1f79353369e8732051db275c6276",
+  "sourceArchiveUrl": "https://codeload.github.com/NousResearch/hermes-agent/tar.gz/bf196a3fc0fd1f79353369e8732051db275c6276",
+  "sourceArchiveSha256": "61b39a194364fb99e65496e10ebb1e96b88b26f206b6c49b8c60078d282fc82d",
+  "installUrl": "https://raw.githubusercontent.com/NousResearch/hermes-agent/bf196a3fc0fd1f79353369e8732051db275c6276/scripts/install.sh",
+  "installSha256": "251c1b97dda5db092d152d34afa315612fe27329e821c5414130f2a7e0c011e2",
+  "gstackRepository": "https://github.com/garrytan/gstack.git",
+  "gstackCommit": "11de390be1be6849eb9a15f91ff4922dd16c589a",
+  "openWebUiImage": "ghcr.io/open-webui/open-webui@sha256:a26effeb220e132482bf7e0560b3404843e7bc40d23051144e062960df8df6b0"
+}

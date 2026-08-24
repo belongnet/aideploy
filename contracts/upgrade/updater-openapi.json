@@ -1,0 +1,89 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "AI Deploy Local Updater API",
+    "version": "aideploy-upgrade-contract-v1"
+  },
+  "paths": {
+    "/api/update/current": {
+      "get": {
+        "summary": "Read current runtime release state",
+        "responses": {
+          "200": {
+            "description": "Current update state"
+          }
+        }
+      }
+    },
+    "/api/update/available": {
+      "get": {
+        "summary": "Read the available release for a channel",
+        "parameters": [
+          {
+            "name": "channel",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["stable", "preview", "emergency", "pinned"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Available release state"
+          }
+        }
+      }
+    },
+    "/api/update/preflight": {
+      "post": {
+        "summary": "Run preflight for a release manifest",
+        "responses": {
+          "200": {
+            "description": "Preflight result"
+          }
+        }
+      }
+    },
+    "/api/update/apply": {
+      "post": {
+        "summary": "Apply a staged release",
+        "responses": {
+          "202": {
+            "description": "Update run accepted"
+          }
+        }
+      }
+    },
+    "/api/update/status/{runId}": {
+      "get": {
+        "summary": "Read update run status",
+        "parameters": [
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Update run status"
+          }
+        }
+      }
+    },
+    "/api/update/rollback": {
+      "post": {
+        "summary": "Rollback a failed or completed update run",
+        "responses": {
+          "202": {
+            "description": "Rollback accepted"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,233 @@
+# Tag-triggered, protected release. VERSION is checked in and must already
+# match the tag, npm metadata, lockfile, and changelog. Every publication step
+# is safe to retry after a partial npm or GitHub success.
+name: release
+on:
+  push:
+    tags: ['v*']
+
+permissions: {}
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      actions: write
+      contents: read
+      id-token: write
+      packages: write
+    strategy:
+      matrix:
+        image: [openclaw-runtime]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned
+      - name: verify immutable public version contract
+        run: cli/scripts/verify-version-contract.sh
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # pinned
+      - uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # pinned
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # pinned
+        with:
+          context: stack/runtime/openclaw
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/aideploy-${{ matrix.image }}:${{ github.ref_name }}
+          provenance: true
+          sbom: true
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # pinned
+      - name: cosign sign the exact image digest
+        run: cosign sign --yes ghcr.io/${{ github.repository_owner }}/aideploy-${{ matrix.image }}@${{ steps.build.outputs.digest }}
+      - name: record digest
+        run: |
+          mkdir -p /tmp/digests
+          printf '%s\n' '${{ steps.build.outputs.digest }}' > '/tmp/digests/${{ matrix.image }}'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # pinned
+        with:
+          name: digest-${{ matrix.image }}
+          path: /tmp/digests/${{ matrix.image }}
+          overwrite: true
+          retention-days: 7
+
+  npm:
+    if: vars.AIDEPLOY_PUBLISH_NPM == 'true'
+    needs: images
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # pinned
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: verify immutable public version contract
+        run: cli/scripts/verify-version-contract.sh
+      - name: verify reviewed OpenTofu archive checksums
+        run: cli/scripts/bake-tofu-checksums.sh --check
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # pinned
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+      - name: vendor terraform and runtime assets into the package
+        run: cli/scripts/vendor-assets.sh
+      - name: pin the signed image digest into the vendored compose file
+        run: cli/scripts/pin-image-digests.sh /tmp/digests
+      - name: test the exact package inputs
+        working-directory: cli
+        run: |
+          npm ci
+          npm run lint
+          npm test
+          npm run test:version
+          npm run test:package
+      - name: build and verify the publish tarball
+        id: package
+        working-directory: cli
+        run: |
+          set -Eeuo pipefail
+          mkdir -p /tmp/npm-release
+          npm pack --json --pack-destination /tmp/npm-release > /tmp/npm-release/pack.json
+          tarball="$(find /tmp/npm-release -maxdepth 1 -name 'aideploy-*.tgz' -print -quit)"
+          test -n "$tarball"
+          tar tzf "$tarball" | grep -q 'package/assets/terraform/digitalocean/main.tf'
+          tar tzf "$tarball" | grep -q 'package/assets/stack/runtime/bootstrap.sh'
+          tar tzf "$tarball" | grep -q 'package/assets/stack/runtime/openclaw/docker-compose.yml'
+          tar tzf "$tarball" | grep -q 'package/README.md'
+          tar tzf "$tarball" | grep -q 'package/LICENSE.md'
+          tar tzf "$tarball" | grep -q 'package/NOTICE'
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+          echo "integrity=$(jq -er '.[0].integrity' /tmp/npm-release/pack.json)" >> "$GITHUB_OUTPUT"
+      - name: publish once, or prove a previous partial publish is identical
+        working-directory: cli
+        env:
+          LOCAL_INTEGRITY: ${{ steps.package.outputs.integrity }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          RELEASE_TARBALL: ${{ steps.package.outputs.tarball }}
+        run: |
+          set -Eeuo pipefail
+          version="$(tr -d '\r\n' < ../VERSION)"
+          if published_integrity="$(npm view "aideploy@$version" dist.integrity 2>/dev/null)"; then
+            test -n "$published_integrity"
+            if [ "$published_integrity" != "$LOCAL_INTEGRITY" ]; then
+              echo "aideploy@$version already exists with different contents" >&2
+              exit 1
+            fi
+            echo "aideploy@$version is already published with the exact tarball; continuing"
+          else
+            npm publish "$RELEASE_TARBALL" --access public
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # pinned
+        with:
+          name: npm-package
+          path: /tmp/npm-release/aideploy-*.tgz
+          overwrite: true
+          retention-days: 30
+
+  base-release:
+    needs: images
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # pinned
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # pinned
+      - name: create the deterministic hosted-build base
+        run: |
+          set -Eeuo pipefail
+          mkdir -p /tmp/base-release
+          scripts/create-base-release.sh \
+            --repo . \
+            --out /tmp/base-release \
+            --tag "$GITHUB_REF_NAME" \
+            --image-digest "$(cat /tmp/digests/openclaw-runtime)"
+          archive="/tmp/base-release/aideploy-base-${GITHUB_REF_NAME}.tgz"
+          manifest="/tmp/base-release/aideploy-base-${GITHUB_REF_NAME}.manifest.json"
+          cosign sign-blob --yes \
+            --bundle "${archive}.sigstore.json" \
+            "$archive"
+          cosign sign-blob --yes \
+            --bundle "${manifest}.sigstore.json" \
+            "$manifest"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # pinned
+        with:
+          name: base-release
+          path: /tmp/base-release/aideploy-base-*
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 30
+
+  github-base-release:
+    needs: base-release
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # pinned
+        with:
+          name: base-release
+          path: /tmp/base-release
+      - name: create or repair the versioned GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -Eeuo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+              gh release edit "$GITHUB_REF_NAME" --prerelease
+            fi
+            gh release upload "$GITHUB_REF_NAME" /tmp/base-release/aideploy-base-* --clobber
+          else
+            release_flags=()
+            if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+              release_flags+=(--prerelease)
+            fi
+            gh release create "$GITHUB_REF_NAME" /tmp/base-release/aideploy-base-* \
+              --verify-tag --generate-notes "${release_flags[@]}"
+          fi
+
+  github-npm-release:
+    needs: [npm, github-base-release]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # pinned
+        with:
+          name: npm-package
+          path: /tmp/npm-release
+      - name: attach the exact npm tarball to the existing GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -Eeuo pipefail
+          tarball="$(find /tmp/npm-release -maxdepth 1 -name 'aideploy-*.tgz' -print -quit)"
+          test -n "$tarball"
+          gh release view "$GITHUB_REF_NAME" >/dev/null
+          gh release upload "$GITHUB_REF_NAME" "$tarball" --clobber

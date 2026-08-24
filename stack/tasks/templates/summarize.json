@@ -1,0 +1,17 @@
+{
+  "name": "Daily Summary",
+  "description": "Generate and send a daily summary of conversations and activity.",
+  "trigger_type": "schedule",
+  "trigger_config": {
+    "cron": {
+      "hour": 18,
+      "minute": 0
+    }
+  },
+  "action_type": "run_prompt",
+  "action_config": {
+    "prompt": "Generate a brief daily summary of today's conversations. Include: number of conversations, key topics discussed, any unresolved questions, and notable interactions. Format it as a clean, readable report.",
+    "system_prompt": "You are a helpful assistant that creates concise daily activity summaries.",
+    "store_result": true
+  }
+}

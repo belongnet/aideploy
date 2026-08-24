@@ -1,0 +1,16 @@
+{
+  "version": "1.10.3",
+  "baseUrl": "https://github.com/opentofu/opentofu/releases/download",
+  "sha256": {
+    "darwin_arm64": "7bde01d7e42f79dde85730cec928fad3c45468bdaef0a6ffa41fd49945dc2dc4",
+    "darwin_amd64": "a083ce25bd564c730af187777aa76206b55fdfa77ff865e869d731c70cd67dcf",
+    "linux_arm64": "7011e9da95299dc8f8eaf4a54ebe066982ead04de778505dfbcaf406de25519a",
+    "linux_amd64": "acf330602ec6ae29ba68dd5d8eb1f645811ae9809231ecdccd4774b21d5c79bc"
+  },
+  "checksumsSource": {
+    "asset": "tofu_1.10.3_SHA256SUMS",
+    "sha256": "87b26bef9590483ee3979d4da0ebde5fef9b2bcaa5c1607a27590b775f07f0cc",
+    "reviewedAt": "2026-07-19",
+    "note": "Archive and checksum-file digests reviewed against immutable GitHub release asset metadata."
+  }
+}

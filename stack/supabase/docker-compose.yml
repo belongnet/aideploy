@@ -1,0 +1,251 @@
+##
+## Supabase — Docker Compose deployment for AiDeploy runtimes.
+## Canonical runtime stack for fresh AiDeploy hosts.
+## Used by Linux VM deploys directly and by macOS/Scaleway runtimes via
+## Docker Compose or compatible Docker backends.
+##
+## Profiles:
+##   default        — core services (db, auth, rest, realtime, storage, kong)
+##   command_center — adds studio, meta, functions
+##
+## Usage:
+##   docker compose up -d                              # core runtime + Kong
+##   docker compose --profile command_center up -d     # adds Studio/Meta/Functions
+##
+
+services:
+  # ── Postgres + pgvector ────────────────────────────────────────
+  supabase-db:
+    image: supabase/postgres:15.6.1.117@sha256:b2744408d7acf92f24c3057a8887c0aa1ce159d96477e2031a79590eb78cc40c
+    container_name: supabase-db
+    restart: unless-stopped
+    # Loopback-only. Docker's iptables rules bypass host UFW, so publishing on
+    # 0.0.0.0 would expose Postgres to anything the cloud firewall doesn't
+    # filter. Host processes and health checks use 127.0.0.1:5432; in-cluster
+    # services use the internal docker network (supabase-db:5432); owner tailnet
+    # access is via `tailscale serve` proxying to loopback — never a raw port.
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+      POSTGRES_DB: postgres
+    volumes:
+      - supabase-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aideploy-runtime
+
+  # ── Auth (GoTrue) ──────────────────────────────────────────────
+  supabase-auth:
+    image: supabase/gotrue:v2.158.1@sha256:202c16530f2f29c886de963ab18b369074c49655480a463ce881169019f2bda7
+    container_name: supabase-auth
+    restart: unless-stopped
+    environment:
+      GOTRUE_API_HOST: "0.0.0.0"
+      GOTRUE_API_PORT: "9999"
+      API_EXTERNAL_URL: "${SUPABASE_PUBLIC_URL:-http://localhost:8000}"
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: "postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@supabase-db:5432/postgres"
+      GOTRUE_SITE_URL: "${SITE_URL:-http://localhost:3000}"
+      GOTRUE_URI_ALLOW_LIST: ""
+      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
+      GOTRUE_JWT_EXP: "3600"
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: "authenticated"
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      GOTRUE_MAILER_AUTOCONFIRM: "true"
+      GOTRUE_SMS_AUTOCONFIRM: "true"
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - aideploy-runtime
+
+  # ── REST (PostgREST) ───────────────────────────────────────────
+  supabase-rest:
+    image: postgrest/postgrest:v12.2.3@sha256:729bf65c733b73f5b52777f0e4b853f22ed73aa67a22d38269d289779b0a8401
+    container_name: supabase-rest
+    restart: unless-stopped
+    environment:
+      PGRST_DB_URI: "postgres://authenticator:${POSTGRES_PASSWORD}@supabase-db:5432/postgres"
+      PGRST_DB_SCHEMAS: "public,storage,graphql_public"
+      PGRST_DB_ANON_ROLE: "anon"
+      PGRST_JWT_SECRET: "${JWT_SECRET}"
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_APP_SETTINGS_JWT_SECRET: "${JWT_SECRET}"
+      PGRST_APP_SETTINGS_JWT_EXP: "3600"
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - aideploy-runtime
+
+  # ── Realtime ───────────────────────────────────────────────────
+  supabase-realtime:
+    image: supabase/realtime:v2.30.34@sha256:f43c080c74915340687727a34b21ae9cacc5ac21380d05b61efebeca6fd7ca4f
+    container_name: supabase-realtime
+    restart: unless-stopped
+    environment:
+      APP_NAME: "${APP_NAME:-supabase-realtime}"
+      PORT: "4000"
+      DB_HOST: supabase-db
+      DB_PORT: "5432"
+      DB_USER: supabase_admin
+      DB_PASSWORD: "${POSTGRES_PASSWORD}"
+      DB_NAME: postgres
+      DB_AFTER_CONNECT_QUERY: "SET search_path TO _realtime"
+      DB_ENC_KEY: "${REALTIME_DB_ENC_KEY:?REALTIME_DB_ENC_KEY is required}"
+      API_JWT_SECRET: "${JWT_SECRET}"
+      METRICS_JWT_SECRET: "${JWT_SECRET}"
+      SECRET_KEY_BASE: "${JWT_SECRET}"
+      RLIMIT_NOFILE: "${RLIMIT_NOFILE:-10000}"
+      ERL_AFLAGS: "-proto_dist inet_tcp"
+      ENABLE_TAILSCALE: "false"
+      DNS_NODES: "''"
+      RUN_JANITOR: "true"
+      JANITOR_INTERVAL: "60000"
+      LOG_LEVEL: "info"
+      SEED_SELF_HOST: "true"
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - aideploy-runtime
+
+  # ── Storage ────────────────────────────────────────────────────
+  supabase-storage:
+    image: supabase/storage-api:v1.11.13@sha256:1e85dad48e8b3e85890a555e5114dc7ee48c2e8be4cfd97dd4e3564b4f104fcd
+    container_name: supabase-storage
+    restart: unless-stopped
+    environment:
+      ANON_KEY: "${SUPABASE_ANON_KEY:?SUPABASE_ANON_KEY is required}"
+      SERVICE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:?SUPABASE_SERVICE_ROLE_KEY is required}"
+      POSTGREST_URL: "http://supabase-rest:3000"
+      PGRST_JWT_SECRET: "${JWT_SECRET}"
+      DATABASE_URL: "postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@supabase-db:5432/postgres"
+      FILE_SIZE_LIMIT: "52428800"
+      STORAGE_BACKEND: file
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      TENANT_ID: stub
+      REGION: stub
+      GLOBAL_S3_BUCKET: stub
+      ENABLE_IMAGE_TRANSFORMATION: "true"
+      IMGPROXY_URL: "http://localhost:5001"
+    volumes:
+      - supabase-storage:/var/lib/storage
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+      supabase-rest:
+        condition: service_started
+    networks:
+      - aideploy-runtime
+
+  # ── Studio (Command Center profile) ────────────────────────────
+  supabase-studio:
+    image: supabase/studio:20240729-ce42139@sha256:374da591f7190427447b9865f63061f561ebc81306d7655d14dab7cb453f3907
+    container_name: supabase-studio
+    restart: unless-stopped
+    profiles: ["command_center"]
+    # Studio is a full DB admin UI — never expose it on 0.0.0.0. Loopback-only;
+    # reach it over the tailnet via `tailscale serve`, not a published port.
+    ports:
+      - "127.0.0.1:3100:3000"
+    environment:
+      STUDIO_PG_META_URL: "http://supabase-meta:8080"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      DEFAULT_ORGANIZATION_NAME: "AiDeploy"
+      DEFAULT_PROJECT_NAME: "OpenClaw"
+      SUPABASE_URL: "http://supabase-kong:8000"
+      SUPABASE_PUBLIC_URL: "${SUPABASE_PUBLIC_URL:-http://localhost:8000}"
+      SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY}"
+      SUPABASE_SERVICE_KEY: "${SUPABASE_SERVICE_ROLE_KEY}"
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - aideploy-runtime
+
+  # ── Kong API Gateway (Core runtime) ────────────────────────────
+  supabase-kong:
+    image: kong:2.8.1@sha256:1b53405d8680a09d6f44494b7990bf7da2ea43f84a258c59717d4539abf09f6d
+    container_name: supabase-kong
+    restart: unless-stopped
+    # Kong fronts routes that are unauthenticated at the gateway (meta/studio,
+    # rest as anon), so it must never be published on 0.0.0.0. Loopback-only:
+    # the runtime reaches it at 127.0.0.1:8000 and `tailscale serve --https=8443
+    # http://127.0.0.1:8000` re-exposes it to the owner's tailnet over HTTPS.
+    ports:
+      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:8443:8443"
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
+      KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+      SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY}"
+      SUPABASE_SERVICE_KEY: "${SUPABASE_SERVICE_ROLE_KEY}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./kong.yml:/home/kong/kong.yml:ro
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - aideploy-runtime
+
+  # ── Meta (pg-meta, Command Center profile) ─────────────────────
+  supabase-meta:
+    image: supabase/postgres-meta:v0.84.2@sha256:d0a96973e9f1b6303f7500421a459af3d7273b3f9f1db38610899f9f573da7c7
+    container_name: supabase-meta
+    restart: unless-stopped
+    profiles: ["command_center"]
+    environment:
+      PG_META_PORT: "8080"
+      PG_META_DB_HOST: supabase-db
+      PG_META_DB_PORT: "5432"
+      PG_META_DB_NAME: postgres
+      PG_META_DB_USER: postgres
+      PG_META_DB_PASSWORD: "${POSTGRES_PASSWORD}"
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - aideploy-runtime
+
+  # ── Edge Functions (Command Center profile) ────────────────────
+  supabase-functions:
+    image: supabase/edge-runtime:v1.62.2@sha256:d06cd23c33815c866480e9835e811056cdfd340fba39d546a8b0e95e1bf03355
+    container_name: supabase-functions
+    restart: unless-stopped
+    profiles: ["command_center"]
+    environment:
+      JWT_SECRET: "${JWT_SECRET}"
+      SUPABASE_URL: "http://supabase-kong:8000"
+      SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY}"
+      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY}"
+      SUPABASE_DB_URL: "postgresql://postgres:${POSTGRES_PASSWORD}@supabase-db:5432/postgres"
+      VERIFY_JWT: "false"
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - aideploy-runtime
+
+volumes:
+  supabase-pgdata:
+    driver: local
+  supabase-storage:
+    driver: local
+
+networks:
+  aideploy-runtime:
+    external: true
+    name: "${AIDEPLOY_DOCKER_NETWORK:-aideploy-runtime}"

@@ -1,0 +1,71 @@
+{
+  "schema_version": "aideploy-upgrade-errors-v1",
+  "codes": {
+    "UPD-1000": {
+      "category": "preflight",
+      "retryable": true,
+      "dashboard_action": "Retry preflight",
+      "message": "The update cannot start until preflight checks pass."
+    },
+    "UPD-1100": {
+      "category": "preflight",
+      "retryable": true,
+      "dashboard_action": "Free disk space and retry",
+      "message": "The update workdir does not have enough free disk space to safely start an update."
+    },
+    "UPD-1101": {
+      "category": "preflight",
+      "retryable": true,
+      "dashboard_action": "Restart Docker and retry",
+      "message": "Docker did not respond to a health check, so the update was refused before touching the runtime."
+    },
+    "UPD-2000": {
+      "category": "authorization",
+      "retryable": false,
+      "dashboard_action": "Reconnect check",
+      "message": "The update authorization token is invalid."
+    },
+    "UPD-2001": {
+      "category": "authorization",
+      "retryable": true,
+      "dashboard_action": "Retry",
+      "message": "The update authorization token expired."
+    },
+    "UPD-2002": {
+      "category": "authorization",
+      "retryable": false,
+      "dashboard_action": "Contact support",
+      "message": "The update authorization token was already used."
+    },
+    "UPD-3000": {
+      "category": "supply_chain",
+      "retryable": false,
+      "dashboard_action": "Contact support",
+      "message": "The update artifact could not be verified."
+    },
+    "UPD-4000": {
+      "category": "apply",
+      "retryable": true,
+      "dashboard_action": "Retry or contact support",
+      "message": "The update failed while applying runtime changes."
+    },
+    "UPD-5000": {
+      "category": "migration",
+      "retryable": false,
+      "dashboard_action": "Download diagnostics",
+      "message": "The update failed while running a migration."
+    },
+    "UPD-6000": {
+      "category": "rollback",
+      "retryable": false,
+      "dashboard_action": "Download diagnostics",
+      "message": "Rollback did not complete cleanly."
+    },
+    "UPD-7000": {
+      "category": "clock",
+      "retryable": true,
+      "dashboard_action": "Reconnect check",
+      "message": "The runtime clock is too far out of sync to verify update freshness."
+    }
+  }
+}
