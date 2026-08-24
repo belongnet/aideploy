@@ -346,8 +346,12 @@ describe('public workflows', () => {
     const placeholderWorkflow = ['github.com', 'OWNER', 'REPO'].join('/');
 
     expect(readme).toContain('https://github.com/belongnet/aideploy');
-    expect(readme).toContain('ghcr.io/belongnet/aideploy-openclaw-runtime@sha256:...');
-    expect(readme).toContain('github\\.com/belongnet/aideploy/\\.github/workflows/release\\.yml@refs/tags/v');
+    expect(readme).toMatch(
+      /ghcr\.io\/belongnet\/aideploy-openclaw-runtime@sha256:[a-f0-9]{64}/,
+    );
+    expect(readme).toContain(
+      'https://github.com/belongnet/aideploy/.github/workflows/release.yml@refs/tags/v',
+    );
     expect(readme).not.toContain(staleRepository);
     expect(readme).not.toContain(placeholderImageOwner);
     expect(readme).not.toContain(placeholderWorkflow);
