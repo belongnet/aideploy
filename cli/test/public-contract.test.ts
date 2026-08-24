@@ -397,6 +397,8 @@ describe('public workflows', () => {
     expect(composeCleanup).toBeGreaterThan(trapDisarm);
     expect(smoke).toContain('docker run --rm --user 0:0 --entrypoint sh');
     expect(smoke).toContain("-c 'rm -rf /cleanup/state /cleanup/workspace'");
+    expect(smoke).toContain('--continue-at -');
+    expect(smoke).toContain('PIP_NO_CACHE_DIR=1');
     expect(smoke).not.toContain('trap cleanup EXIT');
     expect(smoke).toContain('Hermes gateway boot smoke: PASS');
   });

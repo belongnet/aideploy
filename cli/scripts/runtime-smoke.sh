@@ -93,6 +93,7 @@ download_file() {
   local destination="$2"
   curl --fail --silent --show-error --location \
     --connect-timeout 10 --max-time 300 \
+    --continue-at - \
     --retry 4 --retry-delay 2 --retry-all-errors \
     "$url" -o "$destination"
 }
@@ -288,7 +289,9 @@ PY
       python -m venv /tmp/hermes-venv
       installed=false
       for install_attempt in 1 2 3; do
-        if PIP_DEFAULT_TIMEOUT=180 PIP_CACHE_DIR=/tmp/pip-cache \
+        # A timed-out wheel must not poison the next attempt. The source archive
+        # is checksum-pinned separately; transient dependency bytes are not.
+        if PIP_DEFAULT_TIMEOUT=180 PIP_NO_CACHE_DIR=1 \
           /tmp/hermes-venv/bin/pip install \
             --disable-pip-version-check --retries 8 \
             -e "/tmp/hermes-source[homeassistant]"; then
