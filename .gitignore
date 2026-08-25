@@ -9,6 +9,7 @@
 .terraform.lock.hcl
 !terraform/self-host-digitalocean/.terraform.lock.hcl
 node_modules/
+.next/
 dist/
 __pycache__/
 *.py[cod]
