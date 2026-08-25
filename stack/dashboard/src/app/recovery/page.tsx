@@ -113,11 +113,15 @@ export default function RecoveryPage() {
   }, []);
 
   useEffect(() => {
-    loadOverview();
+    // This effect intentionally refreshes the overview and its loading state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadOverview();
   }, [loadOverview]);
 
   useEffect(() => {
-    loadPreview(selectedRunId);
+    // This effect intentionally resets and refreshes the selected preview.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadPreview(selectedRunId);
   }, [loadPreview, selectedRunId]);
 
   const handleRestore = async () => {

@@ -116,7 +116,9 @@ export default function ChannelsPage() {
   }, []);
 
   useEffect(() => {
-    load();
+    // This mount-triggered loader intentionally owns the page loading state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
   }, [load]);
 
   /* ---------------------------------------------------------------- */
@@ -206,6 +208,8 @@ export default function ChannelsPage() {
   const formatDate = (iso: string | null) => {
     if (!iso) return "No activity yet";
     const d = new Date(iso);
+    // Relative-time copy intentionally reflects the current render time.
+    // eslint-disable-next-line react-hooks/purity
     const diff = Date.now() - d.getTime();
     const mins = Math.floor(diff / 60000);
     if (mins < 1) return "Active just now";

@@ -4,4 +4,4 @@ const nextConfig = {
   serverExternalPackages: ["@aws-sdk/client-secrets-manager"],
 };
 
-module.exports = nextConfig;
+export default nextConfig;
