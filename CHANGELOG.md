@@ -6,6 +6,12 @@ tarball when npm publishing is enabled.
 
 ## Unreleased
 
+### Fixed
+
+- The deprecated master-dashboard reference package now uses patched Next.js,
+  PostCSS, and transitive dependencies, with its test, lint, build, and audit
+  checks enforced in public CI.
+
 ## [0.4.2-beta.4] - 2026-08-25
 
 ### Fixed
