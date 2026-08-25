@@ -35,27 +35,32 @@ jobs:
       - run: npm run test:package
         working-directory: cli
 
-  master-dashboard:
+  dashboard:
+    name: dashboard (${{ matrix.package }})
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [dashboard, master-dashboard]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # pinned
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: stack/master-dashboard/package-lock.json
+          cache-dependency-path: stack/${{ matrix.package }}/package-lock.json
       - run: npm ci
-        working-directory: stack/master-dashboard
+        working-directory: stack/${{ matrix.package }}
       - run: npm audit --audit-level=high
-        working-directory: stack/master-dashboard
+        working-directory: stack/${{ matrix.package }}
       - run: npm run lint
-        working-directory: stack/master-dashboard
+        working-directory: stack/${{ matrix.package }}
       - run: npm test
-        working-directory: stack/master-dashboard
+        working-directory: stack/${{ matrix.package }}
       - run: npm run build
-        working-directory: stack/master-dashboard
+        working-directory: stack/${{ matrix.package }}
 
   tofu-validate:
     runs-on: ubuntu-latest
