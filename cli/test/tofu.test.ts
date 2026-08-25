@@ -57,6 +57,22 @@ describe('ensureTofu', () => {
     return { stdout: '', code: 0 };
   }) as any;
 
+  it('rejects Windows before accepting an otherwise compatible system binary', async () => {
+    const compatibleSystem = jest.fn(async () => ({
+      stdout: '{"terraform_version":"1.10.9"}',
+      code: 0,
+    })) as any;
+    await expect(
+      ensureTofu(manifest(), {
+        execImpl: compatibleSystem,
+        fetchImpl: jest.fn() as any,
+        platform: 'win32',
+        arch: 'x64',
+      })
+    ).rejects.toThrow(/POSIX process-group signal handling/i);
+    expect(compatibleSystem).not.toHaveBeenCalled();
+  });
+
   it('downloads, verifies checksum, caches, and reuses the cache', async () => {
     const fetchImpl = jest.fn(async () => new Response(zipBytes, { status: 200 })) as any;
     const bin = await ensureTofu(manifest(), { execImpl: noSystem, fetchImpl, platform: 'darwin', arch: 'arm64' });

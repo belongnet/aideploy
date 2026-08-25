@@ -54,7 +54,16 @@ describe('main (arg surface)', () => {
   });
 
   it('unsupported cloud is a clear golden-path error', async () => {
-    expect(await main(['up', '--cloud', 'aws'])).toBe(1);
+    const chunks: string[] = [];
+    const orig = process.stderr.write.bind(process.stderr);
+    (process.stderr as any).write = (s: string) => (chunks.push(String(s)), true);
+    try {
+      expect(await main(['up', '--cloud', 'aws'])).toBe(1);
+    } finally {
+      (process.stderr as any).write = orig;
+    }
+    expect(chunks.join('')).toMatch(/AWS and GCP.*validate-only/);
+    expect(chunks.join('')).toMatch(/Azure.*compatibility validation, not new deployments/);
   });
 
   it('unknown runtime is rejected', async () => {

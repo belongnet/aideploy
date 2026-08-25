@@ -15,6 +15,16 @@ import { up } from './deploy.js';
 import { down } from './down.js';
 import { doctor } from './doctor.js';
 import { TELEMETRY_CONSENT_QUESTION, askRequired, askYesNo, makeIO } from './prompts.js';
+import { InterruptedError, abortable, throwIfAborted } from './tofu.js';
+
+interface MainDeps {
+  signal?: AbortSignal;
+}
+
+interface SignalSource {
+  on(event: 'SIGINT' | 'SIGTERM', listener: () => void): unknown;
+  removeListener(event: 'SIGINT' | 'SIGTERM', listener: () => void): unknown;
+}
 
 function cliVersion(): string {
   try {
@@ -64,7 +74,10 @@ function withArgumentErrors<T>(parse: () => T): T {
   }
 }
 
-export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
+export async function main(
+  argv: string[] = process.argv.slice(2),
+  deps: MainDeps = {}
+): Promise<number> {
   try {
     assertNodeVersion();
     const command = argv[0];
@@ -76,11 +89,19 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       process.stdout.write(`${cliVersion()}\n`);
       return 0;
     }
-    if (command === 'up') return await cmdUp(argv.slice(1));
-    if (command === 'down') return await cmdDown(argv.slice(1));
+    if (command === 'up') return await cmdUp(argv.slice(1), deps.signal);
+    if (command === 'down') return await cmdDown(argv.slice(1), deps.signal);
     if (command === 'doctor') return await cmdDoctor(argv.slice(1));
     throw new UserError(`Unknown command "${command}". Run \`aideploy help\`.`);
   } catch (err) {
+    if (err instanceof InterruptedError) {
+      process.stderr.write(
+        `\nInterrupted safely (${err.signal}). Any deployment checkpoint and state were kept private. ` +
+          'If a deployment id was printed, rerun with `--deploy-id <that-id>` to resume it, ' +
+          'or run `aideploy down <that-id>` to remove it.\n'
+      );
+      return err.exitCode;
+    }
     if (err instanceof UserError) {
       process.stderr.write(`\nError: ${err.message}\n`);
       return 1;
@@ -89,7 +110,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   }
 }
 
-async function cmdUp(rest: string[]): Promise<number> {
+async function cmdUp(rest: string[], signal?: AbortSignal): Promise<number> {
   const { values } = withArgumentErrors(() =>
     parseArgs({
       args: rest,
@@ -109,7 +130,11 @@ async function cmdUp(rest: string[]): Promise<number> {
   const runtime = values.runtime as string;
   const channel = values.channel as string;
   if (!VALID_CLOUDS.includes(cloud as any)) {
-    throw new UserError(`Cloud "${cloud}" is not supported by the CLI yet (golden path: do). AWS/GCP/Azure are community-supported via the terraform/ modules directly.`);
+    throw new UserError(
+      `Cloud "${cloud}" is not supported by the CLI yet (golden path: do). ` +
+        'AWS and GCP remain available as validate-only OpenTofu reference modules; ' +
+        'Azure is retained for compatibility validation, not new deployments.'
+    );
   }
   if (!VALID_RUNTIMES.includes(runtime as any)) {
     throw new UserError(`Runtime "${runtime}" unknown — choose openclaw or hermes.`);
@@ -118,7 +143,26 @@ async function cmdUp(rest: string[]): Promise<number> {
     throw new UserError(`Channel "${channel}" is not in the golden path yet — start with telegram.`);
   }
 
-  const io = makeIO();
+  throwIfAborted(signal);
+  const baseIO = makeIO();
+  let ioClosed = false;
+  const closeIO = () => {
+    if (ioClosed) return;
+    ioClosed = true;
+    baseIO.close();
+  };
+  const io = {
+    ask: (question: string, opts?: { secret?: boolean }) =>
+      abortable(baseIO.ask(question, opts), signal).catch((error: unknown) => {
+        if (error instanceof InterruptedError) throw error;
+        const abort = error as { code?: unknown; name?: unknown };
+        if (abort.code === 'ABORT_ERR' || abort.name === 'AbortError') {
+          throw new InterruptedError('SIGINT');
+        }
+        throw error;
+      }),
+    close: closeIO,
+  };
   try {
     // Env fallbacks make the CLI scriptable (CI live E2E, power users):
     // DIGITALOCEAN_TOKEN, AIDEPLOY_AI_KEY (+AIDEPLOY_AI_PROVIDER),
@@ -184,6 +228,10 @@ async function cmdUp(rest: string[]): Promise<number> {
     else if (values['no-telemetry']) consent = false;
     else consent = await askYesNo(io, TELEMETRY_CONSENT_QUESTION, true);
 
+    // Restore the terminal before OpenTofu starts. Leaving readline attached
+    // causes a later Ctrl-C to close readline instead of interrupting deploy.
+    closeIO();
+
     const result = await up(
       {
         cloud: cloud as 'do',
@@ -195,7 +243,8 @@ async function cmdUp(rest: string[]): Promise<number> {
         telemetryConsent: consent,
         cliVersion: cliVersion(),
       },
-      { doToken, aiApiKey, aiProvider, telegramBotToken, telegramUserId, tailscaleAuthKey }
+      { doToken, aiApiKey, aiProvider, telegramBotToken, telegramUserId, tailscaleAuthKey },
+      { signal }
     );
 
     const completionLines = [
@@ -226,10 +275,10 @@ async function cmdUp(rest: string[]): Promise<number> {
   }
 }
 
-async function cmdDown(rest: string[]): Promise<number> {
+async function cmdDown(rest: string[], signal?: AbortSignal): Promise<number> {
   const deployId = rest[0];
   if (!deployId || rest.length !== 1) throw new UserError('Usage: aideploy down <deploy-id>');
-  await down(deployId, { cliVersion: cliVersion() });
+  await down(deployId, { cliVersion: cliVersion(), signal });
   return 0;
 }
 
@@ -252,13 +301,44 @@ export function isDirectExecution(moduleUrl: string, argvPath: string | undefine
   }
 }
 
+/** Install graceful handlers only around commands that can mutate cloud state. */
+export async function runWithSignals(
+  task: (signal: AbortSignal) => Promise<number>,
+  signalSource: SignalSource = process
+): Promise<number> {
+  const controller = new AbortController();
+  const onSigint = () => {
+    if (!controller.signal.aborted) controller.abort(new InterruptedError('SIGINT'));
+  };
+  const onSigterm = () => {
+    if (!controller.signal.aborted) controller.abort(new InterruptedError('SIGTERM'));
+  };
+  // npm can forward the same terminal signal after the CLI receives it
+  // directly. Keep both handlers installed until cleanup is genuinely done.
+  signalSource.on('SIGINT', onSigint);
+  signalSource.on('SIGTERM', onSigterm);
+  try {
+    return await task(controller.signal);
+  } finally {
+    signalSource.removeListener('SIGINT', onSigint);
+    signalSource.removeListener('SIGTERM', onSigterm);
+  }
+}
+
 // Only run when executed directly (not when imported by tests).
 if (isDirectExecution(import.meta.url, process.argv[1])) {
-  main().then(
-    (code) => process.exit(code),
+  const argv = process.argv.slice(2);
+  const command = argv[0];
+  const run = command === 'up' || command === 'down'
+    ? runWithSignals((signal) => main(argv, { signal }))
+    : main(argv);
+  void run.then(
+    (code) => {
+      process.exitCode = code;
+    },
     (err) => {
       console.error(err);
-      process.exit(1);
+      process.exitCode = 1;
     }
   );
 }

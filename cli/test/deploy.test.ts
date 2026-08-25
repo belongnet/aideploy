@@ -530,8 +530,9 @@ describe('waitForRuntimeReady', () => {
         sleepImpl: async () => {},
         attempts: 2,
         delayMs: 1,
+        deployId: 'adp-stuck01',
       })
-    ).rejects.toThrow(/state was kept.*aideploy-bootstrap\.log/i);
+    ).rejects.toThrow(/state was kept.*--deploy-id adp-stuck01.*aideploy-bootstrap\.log/i);
   });
 
   it('does not declare a structured bootstrap status ready while it is still running', async () => {
@@ -586,8 +587,9 @@ describe('waitForRuntimeReady', () => {
         sleepImpl: async () => {},
         attempts: 20,
         delayMs: 1,
+        deployId: 'adp-failed01',
       })
-    ).rejects.toThrow(/failed during gstack_install.*state was kept/i);
+    ).rejects.toThrow(/failed during gstack_install.*--deploy-id adp-failed01/i);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });

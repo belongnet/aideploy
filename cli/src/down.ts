@@ -2,7 +2,7 @@ import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DeployConfig, UserError, deployDir } from './config.js';
-import { ensureTofu, execCommand } from './tofu.js';
+import { abortable, ensureTofu, execCommand } from './tofu.js';
 import { execPrivate, loadManifest } from './deploy.js';
 
 export interface DownDeps {
@@ -12,6 +12,7 @@ export interface DownDeps {
   assetsDir?: string;
   log?: (msg: string) => void;
   cliVersion?: string;
+  signal?: AbortSignal;
 }
 
 /**
@@ -61,27 +62,42 @@ export async function down(deployId: string, deps: DownDeps = {}): Promise<void>
       );
     }
   }
+  secureRetainedFiles(dir);
   const assetsDir =
     deps.assetsDir ??
     process.env.AIDEPLOY_ASSETS_DIR ??
     join(dirname(fileURLToPath(import.meta.url)), '..', 'assets');
-  const tofu = await (deps.ensureTofuImpl ?? ensureTofu)(loadManifest(assetsDir), {
-    execImpl: exec,
-    fetchImpl: deps.fetchImpl,
-  });
+  const tofu = await abortable(
+    (deps.ensureTofuImpl ?? ensureTofu)(loadManifest(assetsDir), {
+      execImpl: exec,
+      fetchImpl: deps.fetchImpl,
+      signal: deps.signal,
+    }),
+    deps.signal
+  );
   const tfDir = join(assetsDir, 'terraform', cfg.cloud === 'do' ? 'digitalocean' : cfg.cloud);
   log(`Destroying deploy ${deployId} (${cfg.runtime} in ${cfg.region})...`);
-  await execPrivate(() =>
-    exec(tofu, ['destroy', '-auto-approve', '-input=false', '-no-color', `-state=${statePath}`], {
-      cwd: tfDir,
-      env: {
-        TF_IN_AUTOMATION: '1',
-        TF_DATA_DIR: join(dir, '.terraform'),
-        TF_CLI_ARGS_destroy: `-var-file=${join(dir, 'deploy.auto.tfvars.json')} -var-file=${join(dir, 'secrets.auto.tfvars.json')}`,
-      },
-      stdio: 'inherit',
-    })
-  );
+  try {
+    await execPrivate(() =>
+      exec(tofu, ['destroy', '-auto-approve', '-input=false', '-no-color', `-state=${statePath}`], {
+        cwd: tfDir,
+        env: {
+          TF_IN_AUTOMATION: '1',
+          TF_DATA_DIR: join(dir, '.terraform'),
+          TF_CLI_ARGS_destroy: `-var-file=${join(dir, 'deploy.auto.tfvars.json')} -var-file=${join(dir, 'secrets.auto.tfvars.json')}`,
+        },
+        stdio: 'inherit',
+        signal: deps.signal,
+        // Never hard-kill state mutation on a timer. OpenTofu must be allowed
+        // to finish provider cancellation and persist its recovery state.
+        interruptGraceMs: null,
+      })
+    );
+  } finally {
+    // OpenTofu can rewrite state during destroy. A failed or interrupted
+    // teardown must retain every recovery file with private permissions.
+    secureRetainedFiles(dir);
+  }
 
   // Destroy succeeded: retain only an explicitly non-secret receipt. Keeping
   // tfvars or state would retain cloud, AI, Telegram, and Tailscale secrets.
@@ -115,4 +131,21 @@ export async function down(deployId: string, deps: DownDeps = {}): Promise<void>
   );
   chmodSync(receiptPath, 0o600);
   log(`Deploy ${deployId} destroyed. Credentials and OpenTofu state were scrubbed; receipt: ${receiptPath}`);
+}
+
+function secureRetainedFiles(dir: string): void {
+  chmodSync(dir, 0o700);
+  const terraformDir = join(dir, '.terraform');
+  if (existsSync(terraformDir)) chmodSync(terraformDir, 0o700);
+  for (const name of [
+    'terraform.tfstate',
+    'terraform.tfstate.backup',
+    'config.json',
+    'deploy.auto.tfvars.json',
+    'secrets.auto.tfvars.json',
+    'access.json',
+  ]) {
+    const path = join(dir, name);
+    if (existsSync(path)) chmodSync(path, 0o600);
+  }
 }
