@@ -62,6 +62,30 @@ jobs:
       - run: npm run build
         working-directory: stack/${{ matrix.package }}
 
+  agent-reference:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned
+      - name: Build the shipped Python agent image
+        run: docker build --tag aideploy-agent-reference:ci stack/agent
+      - name: Run the agent unit tests in the shipped image
+        run: |
+          docker run --rm --entrypoint python \
+            -v "$PWD/stack/agent/tests:/app/tests:ro" \
+            aideploy-agent-reference:ci \
+            -W error::DeprecationWarning \
+            -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Verify the installed dependency graph
+        run: |
+          docker run --rm --entrypoint python \
+            aideploy-agent-reference:ci \
+            -m pip check
+          docker run --rm --entrypoint python \
+            aideploy-agent-reference:ci \
+            -c "import importlib.util; assert importlib.util.find_spec('cryptography') is None"
+
   tofu-validate:
     runs-on: ubuntu-latest
     permissions:

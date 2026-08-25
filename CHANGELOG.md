@@ -13,6 +13,10 @@ tarball when npm publishing is enabled.
   enforced in public CI.
 - The dashboard images now bind the standalone server predictably and probe an
   authentication-safe health endpoint, so Docker can report their real status.
+- The deprecated Python agent reference no longer installs the unused
+  `cryptography` package, and its shipped image now runs its unit tests in CI.
+- Python agent model timestamps now use timezone-aware UTC defaults instead of
+  the deprecated naive `datetime.utcnow()` API.
 
 ## [0.4.2-beta.4] - 2026-08-25
 

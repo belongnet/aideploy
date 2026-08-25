@@ -4,10 +4,15 @@ Pydantic models for all agent data structures.
 """
 from __future__ import annotations
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 from pydantic import BaseModel, Field
+
+
+def utc_now() -> datetime:
+    """Return an aware UTC timestamp for TIMESTAMPTZ-backed model defaults."""
+    return datetime.now(timezone.utc)
 
 class ModelProvider(str, Enum):
     OPENAI = 'openai'
@@ -122,7 +127,7 @@ class Conversation(BaseModel):
     starred: bool = False
     message_count: int = 0
     last_message_at: Optional[datetime] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 class Message(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
@@ -131,7 +136,7 @@ class Message(BaseModel):
     content: str
     metadata: dict[str, Any] = Field(default_factory=dict)
     tokens_used: Optional[int] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 class Task(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
@@ -159,7 +164,7 @@ class BusMessage(BaseModel):
     event_type: BusEventType = BusEventType.MESSAGE_FORWARD
     payload: dict[str, Any] = Field(default_factory=dict)
     status: str = 'pending'
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
 
 class MemoryItem(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
@@ -171,8 +176,8 @@ class MemoryItem(BaseModel):
     summary: str
     content_sha256: str
     metadata: dict[str, Any] = Field(default_factory=dict)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
     forgotten_at: Optional[datetime] = None
 
 class MemoryHit(MemoryItem):
