@@ -239,7 +239,6 @@ export default function RootLayout({
   /** Check if first-run setup is needed */
   useEffect(() => {
     if (isSetupPage) {
-      setSetupChecked(true);
       return;
     }
     fetchSetupStatus()

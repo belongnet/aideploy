@@ -63,7 +63,7 @@ function withSecurityHeaders(response: NextResponse): NextResponse {
 }
 
 function isApiPath(pathname: string): boolean {
-  return pathname.startsWith("/api/");
+  return pathname.startsWith("/api/") || pathname.startsWith("/dashboard-api/");
 }
 
 function isAllowedUnauthenticatedPath(pathname: string): boolean {
@@ -96,7 +96,7 @@ function requireSameOriginForCookieWrite(request: NextRequest): NextResponse | n
     : jsonResponse(403, "CSRF check failed");
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const token = dashboardToken();
 

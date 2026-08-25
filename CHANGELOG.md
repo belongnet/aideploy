@@ -6,6 +6,14 @@ tarball when npm publishing is enabled.
 
 ## Unreleased
 
+### Fixed
+
+- The deprecated dashboard reference packages now use patched Next.js, PostCSS,
+  and transitive dependencies, with their test, lint, build, and audit checks
+  enforced in public CI.
+- The dashboard images now bind the standalone server predictably and probe an
+  authentication-safe health endpoint, so Docker can report their real status.
+
 ## [0.4.2-beta.4] - 2026-08-25
 
 ### Fixed

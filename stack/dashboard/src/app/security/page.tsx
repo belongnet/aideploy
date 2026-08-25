@@ -156,7 +156,9 @@ export default function SecurityPage() {
   }, []);
 
   useEffect(() => {
-    load();
+    // This mount-triggered loader intentionally owns the page loading state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
   }, [load]);
 
   const handleTestRef = async () => {

@@ -71,7 +71,9 @@ export default function ConversationsPage() {
   }, [search, starredOnly]);
 
   useEffect(() => {
-    loadConversations();
+    // This effect intentionally refreshes the list and its loading state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadConversations();
   }, [loadConversations]);
 
   const loadMessages = useCallback(async (id: string) => {
@@ -89,7 +91,9 @@ export default function ConversationsPage() {
   /* Load thread when a conversation is selected */
   useEffect(() => {
     if (selectedId) {
-      loadMessages(selectedId);
+      // This effect intentionally refreshes the selected thread's loading state.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      void loadMessages(selectedId);
     }
   }, [selectedId, loadMessages]);
 
@@ -157,6 +161,8 @@ export default function ConversationsPage() {
 
   const formatTime = (iso: string) => {
     const d = new Date(iso);
+    // Relative-time copy intentionally reflects the current render time.
+    // eslint-disable-next-line react-hooks/purity
     const diff = Date.now() - d.getTime();
     const mins = Math.floor(diff / 60000);
     if (mins < 1) return "just now";

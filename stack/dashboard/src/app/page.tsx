@@ -68,7 +68,9 @@ export default function HomePage() {
   }, [setAgentStatus, setStats]);
 
   useEffect(() => {
-    load();
+    // This mount-triggered loader intentionally owns the page loading state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
   }, [load]);
 
   const handleRestart = async () => {
@@ -115,6 +117,8 @@ export default function HomePage() {
   };
 
   const timeAgo = (iso: string) => {
+    // Relative-time copy intentionally reflects the current render time.
+    // eslint-disable-next-line react-hooks/purity
     const diff = Date.now() - new Date(iso).getTime();
     const mins = Math.floor(diff / 60000);
     if (mins < 1) return "just now";

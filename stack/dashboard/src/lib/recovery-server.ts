@@ -201,7 +201,9 @@ function parseEnvFile(contents: string) {
 async function backupEnv() {
   let fileEnv: Record<string, string> = {};
   try {
-    fileEnv = parseEnvFile(await readFile(supabaseEnvPath(), "utf8"));
+    fileEnv = parseEnvFile(
+      await readFile(/* turbopackIgnore: true */ supabaseEnvPath(), "utf8"),
+    );
   } catch {
     fileEnv = {};
   }
@@ -1393,7 +1395,7 @@ export async function createRestorePlaceholder(
 
   let executorPid = 0;
   if (mode === "full") {
-    const child = spawn(restoreExecutable(), [safeId], {
+    const child = spawn(/* turbopackIgnore: true */ restoreExecutable(), [safeId], {
       detached: true,
       stdio: "ignore",
       env: {

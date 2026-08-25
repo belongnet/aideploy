@@ -24,9 +24,10 @@ RUN chown -R openclaw:openclaw /app
 USER openclaw
 
 ENV NODE_ENV=production
+ENV HOSTNAME=0.0.0.0
 ENV NEXT_TELEMETRY_DISABLED=1
 
 HEALTHCHECK --interval=15s --timeout=5s --retries=3 \
-  CMD wget -q --spider http://localhost:${DASHBOARD_PORT:-3001}/ || exit 1
+  CMD wget -q -O /dev/null http://127.0.0.1:${DASHBOARD_PORT:-3001}/api/healthz || exit 1
 
 CMD ["node", "server.js"]

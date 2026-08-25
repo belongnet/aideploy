@@ -46,7 +46,9 @@ export default function AgentDetailPage() {
   }, [agentId]);
 
   useEffect(() => {
-    fetchAgent();
+    // The first state update occurs only after the network request resolves.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchAgent();
     const interval = setInterval(fetchAgent, 15_000);
     return () => clearInterval(interval);
   }, [fetchAgent]);

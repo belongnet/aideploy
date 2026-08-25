@@ -25,10 +25,11 @@ USER openclaw
 
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
 ENV NEXT_TELEMETRY_DISABLED=1
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \
-  CMD wget -q -O /dev/null http://localhost:3000/api/healthz || exit 1
+  CMD wget -q -O /dev/null http://127.0.0.1:3000/api/healthz || exit 1
 
 EXPOSE 3000
 CMD ["node", "server.js"]
