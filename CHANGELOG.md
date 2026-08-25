@@ -6,6 +6,29 @@ tarball when npm publishing is enabled.
 
 ## Unreleased
 
+## [0.4.2-beta.4] - 2026-08-25
+
+### Fixed
+
+- `aideploy up` and `aideploy down` now handle terminal `Ctrl-C` and `SIGTERM`
+  gracefully, allow state-mutating OpenTofu commands to finish reconciliation,
+  and preserve private recovery state with conventional exit codes 130 and 143.
+- Recovery guidance now requires the printed deployment ID, preventing an
+  interrupted retry from accidentally creating a second billable VM.
+- Runtime readiness polling keeps its five-second request timeout while also
+  honoring the outer CLI interruption signal, cancels pending retry timers,
+  and cannot let telemetry mask an interrupt.
+- The CLI now fails closed on unsupported operating systems before accepting a
+  system OpenTofu binary; safe interrupt recovery is supported on macOS/Linux.
+- Unsupported-cloud guidance now describes Azure as retained compatibility
+  validation rather than a new-deployment path.
+
+### For contributors
+
+- Packed `npx aideploy` tests now exercise real terminal behavior, including
+  npm signal forwarding, readline prompts, and child process isolation; the
+  recovery suite also covers stalled-command escalation and interrupted state.
+
 ## [0.4.2-beta.3] - 2026-08-24
 
 ### Fixed

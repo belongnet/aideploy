@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -346,11 +346,15 @@ describe('public workflows', () => {
     const placeholderWorkflow = ['github.com', 'OWNER', 'REPO'].join('/');
 
     expect(readme).toContain('https://github.com/belongnet/aideploy');
-    expect(readme).toMatch(
-      /ghcr\.io\/belongnet\/aideploy-openclaw-runtime@sha256:[a-f0-9]{64}/,
-    );
+    expect(readme).toContain('aideploy-base-$release.manifest.json.sigstore.json');
+    expect(readme).toContain('cosign verify-blob');
+    expect(readme).toContain('m.commitSha');
+    expect(readme).toContain('m.sourceTreeSha');
+    expect(readme).toContain("git rev-parse 'HEAD^{tree}'");
+    expect(readme).toContain('m.runtimeImages.openclaw');
+    expect(readme).toContain('ghcr.io/belongnet/aideploy-openclaw-runtime@$digest');
     expect(readme).toContain(
-      'https://github.com/belongnet/aideploy/.github/workflows/release.yml@refs/tags/v',
+      'https://github.com/belongnet/aideploy/.github/workflows/release.yml@refs/tags/$release',
     );
     expect(readme).not.toContain(staleRepository);
     expect(readme).not.toContain(placeholderImageOwner);
@@ -368,6 +372,127 @@ describe('public workflows', () => {
     expect(selfHost).toContain('`--yes-telemetry` or `--no-telemetry`');
     expect(selfHost).toContain('`/v2/account` must identify the same account UUID');
     expect(selfHost).toContain('original one-off Tailscale key saved in');
+  });
+
+  it('fails the README quick start closed before executing unverified source', () => {
+    const readme = text(join(publicRoot, 'README.md'));
+    const quickStart = [...readme.matchAll(/```bash\n([\s\S]*?)\n```/g)]
+      .map((match) => match[1])
+      .find((block) => block.includes('git clone --branch'));
+    expect(quickStart).toContain('set -Eeuo pipefail');
+
+    const fixture = mkdtempSync(join(tmpdir(), 'aideploy-readme-gate-'));
+    const bin = join(fixture, 'bin');
+    const checkout = join(fixture, 'aideploy');
+    const logPath = join(fixture, 'executed.log');
+    const expectedCommit = 'a'.repeat(40);
+    const expectedTree = 'b'.repeat(40);
+    const digest = `sha256:${'c'.repeat(64)}`;
+    mkdirSync(join(checkout, 'cli', 'scripts'), { recursive: true });
+    mkdirSync(join(checkout, 'cli', 'dist'), { recursive: true });
+    mkdirSync(join(fixture, 'tmp'), { recursive: true });
+    mkdirSync(bin, { recursive: true });
+    const executable = (path: string, lines: string[]) => {
+      writeFileSync(path, `${lines.join('\n')}\n`);
+      chmodSync(path, 0o755);
+    };
+    executable(join(bin, 'git'), [
+      '#!/bin/sh',
+      'case "$1" in',
+      '  clone) exit 0 ;;',
+      '  rev-parse)',
+      '    case "$2" in',
+      '      HEAD) printf "%s\\n" "$AIDEPLOY_TEST_COMMIT" ;;',
+      '      "HEAD^{tree}") printf "%s\\n" "$AIDEPLOY_TEST_TREE" ;;',
+      '      *) exit 64 ;;',
+      '    esac ;;',
+      '  *) exit 64 ;;',
+      'esac',
+    ]);
+    executable(join(bin, 'curl'), [
+      '#!/bin/sh',
+      'out=""',
+      'while [ "$#" -gt 0 ]; do',
+      '  if [ "$1" = "-o" ]; then out="$2"; break; fi',
+      '  shift',
+      'done',
+      'case "$out" in',
+      '  *.sigstore.json) printf "{\\"bundle\\":true}\\n" > "$out" ;;',
+      `  *) printf "%s\\n" '${JSON.stringify({
+        commitSha: expectedCommit,
+        sourceTreeSha: expectedTree,
+        runtimeImages: { openclaw: digest },
+      })}' > "$out" ;;`,
+      'esac',
+    ]);
+    executable(join(bin, 'cosign'), [
+      '#!/bin/sh',
+      '[ "${AIDEPLOY_TEST_FAIL_COSIGN:-}" = manifest ] && [ "$1" = verify-blob ] && exit 42',
+      '[ "${AIDEPLOY_TEST_FAIL_COSIGN:-}" = image ] && [ "$1" = verify ] && exit 43',
+      'exit 0',
+    ]);
+    executable(join(bin, 'npm'), [
+      '#!/bin/sh',
+      'printf "npm\\n" >> "$AIDEPLOY_TEST_LOG"',
+    ]);
+    executable(join(bin, 'node'), [
+      '#!/bin/sh',
+      'if [ "$1" = "-e" ]; then exec "$AIDEPLOY_TEST_REAL_NODE" "$@"; fi',
+      'printf "deploy\\n" >> "$AIDEPLOY_TEST_LOG"',
+    ]);
+    executable(join(checkout, 'cli', 'scripts', 'vendor-assets.sh'), [
+      '#!/bin/sh',
+      'printf "vendor\\n" >> "$AIDEPLOY_TEST_LOG"',
+    ]);
+    executable(join(checkout, 'cli', 'scripts', 'pin-image-digests.sh'), [
+      '#!/bin/sh',
+      'printf "pin\\n" >> "$AIDEPLOY_TEST_LOG"',
+    ]);
+
+    const run = (actualCommit: string, actualTree: string, failCosign = '') =>
+      spawnSync('bash', ['-c', quickStart!], {
+        cwd: fixture,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH ?? ''}`,
+          TMPDIR: join(fixture, 'tmp'),
+          AIDEPLOY_TEST_COMMIT: actualCommit,
+          AIDEPLOY_TEST_TREE: actualTree,
+          AIDEPLOY_TEST_FAIL_COSIGN: failCosign,
+          AIDEPLOY_TEST_LOG: logPath,
+          AIDEPLOY_TEST_REAL_NODE: process.execPath,
+        },
+      });
+    const executionLog = () => (existsSync(logPath) ? text(logPath) : '');
+
+    try {
+      const badSignature = run(expectedCommit, expectedTree, 'manifest');
+      expect(badSignature.status).not.toBe(0);
+      expect(executionLog()).toBe('');
+
+      rmSync(logPath, { force: true });
+      const movedTag = run('d'.repeat(40), expectedTree);
+      expect(movedTag.status).not.toBe(0);
+      expect(executionLog()).toBe('');
+
+      rmSync(logPath, { force: true });
+      const changedTree = run(expectedCommit, 'e'.repeat(40));
+      expect(changedTree.status).not.toBe(0);
+      expect(executionLog()).toBe('');
+
+      rmSync(logPath, { force: true });
+      const badImageSignature = run(expectedCommit, expectedTree, 'image');
+      expect(badImageSignature.status).not.toBe(0);
+      expect(executionLog()).toBe('');
+
+      rmSync(logPath, { force: true });
+      const verified = run(expectedCommit, expectedTree);
+      expect(verified.status).toBe(0);
+      expect(executionLog()).toBe('vendor\npin\nnpm\nnpm\ndeploy\n');
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
   });
 
   it('vendors before digest pinning and publishes retry-idempotently from the checked-in version', () => {
