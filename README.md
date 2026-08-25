@@ -67,7 +67,10 @@ OpenClaw or Hermes and one of OpenAI, Anthropic, or Kimi.
 
 ### Before you deploy
 
-You need four credentials:
+Run the CLI on **macOS or Linux** (amd64 or arm64) with Node.js 18.3 or newer
+and [Cosign](https://docs.sigstore.dev/cosign/system_config/installation/).
+Windows is not yet supported because safe OpenTofu interruption depends on
+POSIX process groups. You also need four credentials:
 
 1. A DigitalOcean read/write API token.
 2. An OpenAI, Anthropic, or Kimi API key.
@@ -80,19 +83,58 @@ the same tailnet, enable MagicDNS and HTTPS certificates, then run the beta from
 the tagged source release:
 
 ```bash
-git clone --branch v0.4.2-beta.3 --depth 1 https://github.com/belongnet/aideploy.git
+(
+set -Eeuo pipefail
+
+git clone --branch v0.4.2-beta.4 --depth 1 https://github.com/belongnet/aideploy.git
 cd aideploy
 
-# Prepare the exact assets used by the release package.
-./cli/scripts/vendor-assets.sh
+release=v0.4.2-beta.4
 digest_dir="$(mktemp -d)"
-printf '%s\n' 'sha256:590388b941cacd6d543cb3f4d2b55a218cbe58c718e87e8dc82bd4cfc94f10db' \
-  > "$digest_dir/openclaw-runtime"
+manifest="$digest_dir/aideploy-base-$release.manifest.json"
+bundle="$manifest.sigstore.json"
+curl -fsSL \
+  "https://github.com/belongnet/aideploy/releases/download/$release/aideploy-base-$release.manifest.json" \
+  -o "$manifest"
+curl -fsSL \
+  "https://github.com/belongnet/aideploy/releases/download/$release/aideploy-base-$release.manifest.json.sigstore.json" \
+  -o "$bundle"
+identity="https://github.com/belongnet/aideploy/.github/workflows/release.yml@refs/tags/$release"
+issuer="https://token.actions.githubusercontent.com"
+cosign verify-blob \
+  --bundle "$bundle" \
+  --certificate-identity "$identity" \
+  --certificate-oidc-issuer "$issuer" \
+  "$manifest"
+
+# Fail closed unless this checkout is the exact commit and tree recorded in
+# the signed release manifest. Do this before running any repository script.
+expected_commit="$(node -e \
+  'const fs=require("node:fs"); const m=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(m.commitSha)' \
+  "$manifest")"
+expected_tree="$(node -e \
+  'const fs=require("node:fs"); const m=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(m.sourceTreeSha)' \
+  "$manifest")"
+test "$(git rev-parse HEAD)" = "$expected_commit"
+test "$(git rev-parse 'HEAD^{tree}')" = "$expected_tree"
+
+node -e \
+  'const fs=require("node:fs"); const m=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); console.log(m.runtimeImages.openclaw)' \
+  "$manifest" > "$digest_dir/openclaw-runtime"
+digest="$(tr -d '[:space:]' < "$digest_dir/openclaw-runtime")"
+cosign verify \
+  --certificate-identity "$identity" \
+  --certificate-oidc-issuer "$issuer" \
+  "ghcr.io/belongnet/aideploy-openclaw-runtime@$digest"
+
+# Only now execute the verified checkout and prepare its release assets.
+./cli/scripts/vendor-assets.sh
 GITHUB_REPOSITORY_OWNER=belongnet ./cli/scripts/pin-image-digests.sh "$digest_dir"
 
 npm --prefix cli ci
 npm --prefix cli run build
 node cli/dist/index.js up
+)
 ```
 
 The source setup is intentionally explicit until the npm publication gate is
@@ -237,13 +279,31 @@ the selected customer cloud.
 - Public releases include deterministic source archives, manifests, SHA-256
   values, and keyless Sigstore bundles.
 
-Verify the exact beta.3 OpenClaw image anonymously:
+Verify the beta.4 release manifest, then verify the exact OpenClaw image digest
+recorded in it:
 
 ```bash
+release=v0.4.2-beta.4
+release_dir="$(mktemp -d)"
+base="https://github.com/belongnet/aideploy/releases/download/$release/aideploy-base-$release.manifest.json"
+curl -fsSL "$base" -o "$release_dir/manifest.json"
+curl -fsSL "$base.sigstore.json" -o "$release_dir/manifest.sigstore.json"
+
+identity="https://github.com/belongnet/aideploy/.github/workflows/release.yml@refs/tags/$release"
+issuer="https://token.actions.githubusercontent.com"
+cosign verify-blob \
+  --bundle "$release_dir/manifest.sigstore.json" \
+  --certificate-identity "$identity" \
+  --certificate-oidc-issuer "$issuer" \
+  "$release_dir/manifest.json"
+
+digest="$(node -e \
+  'const fs=require("node:fs"); const m=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); process.stdout.write(m.runtimeImages.openclaw)' \
+  "$release_dir/manifest.json")"
 cosign verify \
-  --certificate-identity 'https://github.com/belongnet/aideploy/.github/workflows/release.yml@refs/tags/v0.4.2-beta.3' \
-  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-  ghcr.io/belongnet/aideploy-openclaw-runtime@sha256:590388b941cacd6d543cb3f4d2b55a218cbe58c718e87e8dc82bd4cfc94f10db
+  --certificate-identity "$identity" \
+  --certificate-oidc-issuer "$issuer" \
+  "ghcr.io/belongnet/aideploy-openclaw-runtime@$digest"
 ```
 
 Report vulnerabilities privately through GitHub or

@@ -29,12 +29,18 @@ npx aideploy up --runtime openclaw --region nyc3
 npx aideploy up --runtime hermes --region nyc3
 ```
 
-To resume an interrupted deployment, rerun the same CLI version with its
-original deploy ID, settings, and runtime credentials. You may rotate the
-DigitalOcean token, but `/v2/account` must identify the same account UUID. All
-other immutable values—including the original one-off Tailscale key saved in
-local deployment state—must match; otherwise, choose a new deploy ID for a
-replacement deployment.
+To resume an interrupted deployment, rerun the same CLI version and command
+with `--deploy-id <printed-id>`, plus the original settings and runtime
+credentials. Do not omit the deployment ID: the default command creates a new
+one and could create a second billable VM. You may rotate the DigitalOcean
+token, but `/v2/account` must identify the same account UUID. All other
+immutable values—including the original one-off Tailscale key saved in local
+deployment state—must match; otherwise, choose a new deploy ID for a replacement
+deployment.
+
+On `Ctrl-C` or `SIGTERM`, the CLI interrupts OpenTofu once and waits for it to
+finish provider reconciliation and write recovery state before exiting with
+code 130 or 143. Let that cleanup finish; do not kill the OpenTofu process.
 
 The command validates the region and size against DigitalOcean, stores state
 under `~/.aideploy/<deploy-id>/`, applies the live

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { binDir, UserError } from './config.js';
 
 /**
@@ -24,6 +24,56 @@ export interface TofuDeps {
   execImpl?: typeof execCommand;
   platform?: NodeJS.Platform;
   arch?: string;
+  signal?: AbortSignal;
+}
+
+type InterruptSignal = 'SIGINT' | 'SIGTERM';
+export const INTERRUPT_GRACE_MS = 5000;
+
+/** A graceful process interruption with the conventional shell exit code. */
+export class InterruptedError extends UserError {
+  readonly exitCode: 130 | 143;
+  readonly signal: InterruptSignal;
+
+  constructor(signal: InterruptSignal) {
+    super(`Interrupted by ${signal}.`);
+    this.name = 'InterruptedError';
+    this.signal = signal;
+    this.exitCode = signal === 'SIGTERM' ? 143 : 130;
+  }
+}
+
+export function interruptionError(signal?: AbortSignal): InterruptedError {
+  return signal?.reason instanceof InterruptedError
+    ? signal.reason
+    : new InterruptedError('SIGINT');
+}
+
+export function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw interruptionError(signal);
+}
+
+/** Race work against a user interrupt while still observing its eventual rejection. */
+export function abortable<T>(work: PromiseLike<T>, signal?: AbortSignal): Promise<T> {
+  const promise = Promise.resolve(work);
+  if (!signal) return promise;
+
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (next: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', onAbort);
+      next();
+    };
+    const onAbort = () => finish(() => reject(interruptionError(signal)));
+    signal.addEventListener('abort', onAbort, { once: true });
+    if (signal.aborted) onAbort();
+    promise.then(
+      (value) => finish(() => resolve(value)),
+      (error) => finish(() => reject(error))
+    );
+  });
 }
 
 export function platformKey(platform: NodeJS.Platform = process.platform, arch: string = process.arch): string {
@@ -31,8 +81,9 @@ export function platformKey(platform: NodeJS.Platform = process.platform, arch: 
   const cpu = arch === 'arm64' ? 'arm64' : arch === 'x64' ? 'amd64' : null;
   if (!os || !cpu) {
     throw new UserError(
-      `Unsupported platform ${platform}/${arch}. aideploy supports darwin/linux on amd64/arm64; ` +
-        'on other systems install OpenTofu manually and put `tofu` on your PATH.'
+      `Unsupported platform ${platform}/${arch}. aideploy supports macOS and Linux on amd64/arm64. ` +
+        'A compatible system OpenTofu binary does not make other operating systems safe because ' +
+        'the CLI also requires POSIX process-group signal handling.'
     );
   }
   return `${os}_${cpu}`;
@@ -46,33 +97,102 @@ export function sha256(buf: Buffer): string {
 export function execCommand(
   cmd: string,
   args: string[],
-  opts: { cwd?: string; env?: NodeJS.ProcessEnv; stdio?: 'inherit' | 'pipe' } = {}
+  opts: {
+    cwd?: string;
+    env?: NodeJS.ProcessEnv;
+    stdio?: 'inherit' | 'pipe';
+    signal?: AbortSignal;
+    /**
+     * Force-kill the isolated process group after this many milliseconds.
+     * Use `null` for state-mutating commands that must finish their own
+     * interrupt reconciliation before the caller exits.
+     */
+    interruptGraceMs?: number | null;
+  } = {}
 ): Promise<{ stdout: string; code: number }> {
+  throwIfAborted(opts.signal);
   return new Promise((resolve, reject) => {
+    // A terminal sends Ctrl-C to every process in its foreground group. Give
+    // the command its own group so the CLI can forward exactly one interrupt
+    // instead of turning one Ctrl-C into OpenTofu's unsafe second interrupt.
+    const isolatedProcessGroup = process.platform !== 'win32';
     const child = spawn(cmd, args, {
       cwd: opts.cwd,
       env: { ...process.env, ...opts.env },
       stdio: opts.stdio === 'inherit' ? ['ignore', 'inherit', 'inherit'] : ['ignore', 'pipe', 'pipe'],
+      detached: isolatedProcessGroup,
     });
     let stdout = '';
     let stderr = '';
+    let settled = false;
+    let forceKill: NodeJS.Timeout | undefined;
+    const cleanup = () => {
+      opts.signal?.removeEventListener('abort', onAbort);
+      if (forceKill) clearTimeout(forceKill);
+    };
+    const finish = (next: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      next();
+    };
+    const onAbort = () => {
+      signalChildGroup(child, 'SIGINT', isolatedProcessGroup);
+      const interruptGraceMs =
+        opts.interruptGraceMs === undefined ? INTERRUPT_GRACE_MS : opts.interruptGraceMs;
+      if (interruptGraceMs !== null) {
+        forceKill = setTimeout(
+          () => signalChildGroup(child, 'SIGKILL', isolatedProcessGroup),
+          interruptGraceMs
+        );
+        forceKill.unref();
+      }
+    };
+    opts.signal?.addEventListener('abort', onAbort, { once: true });
+    if (opts.signal?.aborted) onAbort();
     child.stdout?.on('data', (d) => (stdout += d));
     child.stderr?.on('data', (d) => (stderr += d));
-    child.on('error', (err) => reject(new UserError(`failed to run ${cmd}: ${err.message}`)));
+    child.on('error', (err) =>
+      finish(() =>
+        reject(opts.signal?.aborted ? interruptionError(opts.signal) : new UserError(`failed to run ${cmd}: ${err.message}`))
+      )
+    );
     child.on('close', (code) => {
-      if (code === 0) resolve({ stdout, code: 0 });
-      else reject(new UserError(`${cmd} ${args[0] ?? ''} exited ${code}${stderr ? `:\n${stderr.slice(-2000)}` : ''}`));
+      finish(() => {
+        if (opts.signal?.aborted) reject(interruptionError(opts.signal));
+        else if (code === 0) resolve({ stdout, code: 0 });
+        else reject(new UserError(`${cmd} ${args[0] ?? ''} exited ${code}${stderr ? `:\n${stderr.slice(-2000)}` : ''}`));
+      });
     });
   });
+}
+
+function signalChildGroup(
+  child: ChildProcess,
+  signal: NodeJS.Signals,
+  isolatedProcessGroup: boolean
+): void {
+  if (!child.pid) return;
+  if (isolatedProcessGroup) {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch {
+      // The group may already be gone; fall back to the child handle so an
+      // independently surviving process still receives the shutdown signal.
+    }
+  }
+  child.kill(signal);
 }
 
 /** True when a system `tofu` exists and matches the pinned minor version. */
 export async function compatibleSystemTofu(
   manifest: TofuManifest,
-  exec: typeof execCommand = execCommand
+  exec: typeof execCommand = execCommand,
+  signal?: AbortSignal
 ): Promise<string | null> {
   try {
-    const { stdout } = await exec('tofu', ['version', '-json']);
+    const { stdout } = await exec('tofu', ['version', '-json'], { signal });
     const version = JSON.parse(stdout).terraform_version ?? JSON.parse(stdout).version;
     if (typeof version === 'string') {
       const [maj, min] = version.split('.');
@@ -80,7 +200,10 @@ export async function compatibleSystemTofu(
       if (maj === pmaj && min === pmin) return 'tofu';
     }
     return null;
-  } catch {
+  } catch (error) {
+    if (error instanceof InterruptedError || signal?.aborted) {
+      throw interruptionError(signal);
+    }
     return null;
   }
 }
@@ -92,11 +215,16 @@ export async function compatibleSystemTofu(
 export async function ensureTofu(manifest: TofuManifest, deps: TofuDeps = {}): Promise<string> {
   const exec = deps.execImpl ?? execCommand;
   const fetchFn = deps.fetchImpl ?? fetch;
+  throwIfAborted(deps.signal);
 
-  const system = await compatibleSystemTofu(manifest, exec);
+  // Validate the complete CLI platform contract before accepting a system
+  // binary. On Windows, child.kill('SIGINT') is a hard termination rather than
+  // OpenTofu's graceful state-writing interrupt path.
+  const key = platformKey(deps.platform, deps.arch);
+
+  const system = await compatibleSystemTofu(manifest, exec, deps.signal);
   if (system) return system;
 
-  const key = platformKey(deps.platform, deps.arch);
   const expected = manifest.sha256[key];
   if (!expected || !/^[a-f0-9]{64}$/.test(expected)) {
     throw new UserError(
@@ -115,7 +243,7 @@ export async function ensureTofu(manifest: TofuManifest, deps: TofuDeps = {}): P
   // fresh extraction from that verified archive. This detects both archive
   // and binary corruption without downloading again for a healthy cache.
   if (existsSync(zipPath) && sha256(readFileSync(zipPath)) === expected) {
-    await repairBinaryFromVerifiedArchive(zipPath, dir, bin, exec);
+    await repairBinaryFromVerifiedArchive(zipPath, dir, bin, exec, deps.signal);
     return bin;
   }
   rmSync(zipPath, { force: true });
@@ -124,9 +252,9 @@ export async function ensureTofu(manifest: TofuManifest, deps: TofuDeps = {}): P
 
   const url = `${manifest.baseUrl}/v${manifest.version}/tofu_${manifest.version}_${key}.zip`;
   process.stderr.write(`Downloading OpenTofu ${manifest.version} (${key})...\n`);
-  const res = await fetchFn(url);
+  const res = await abortable(fetchFn(url, { signal: deps.signal }), deps.signal);
   if (!res.ok) throw new UserError(`OpenTofu download failed: HTTP ${res.status} for ${url}`);
-  const zip = Buffer.from(await res.arrayBuffer());
+  const zip = Buffer.from(await abortable(res.arrayBuffer(), deps.signal));
 
   const actual = sha256(zip);
   if (actual !== expected) {
@@ -137,7 +265,7 @@ export async function ensureTofu(manifest: TofuManifest, deps: TofuDeps = {}): P
   }
 
   writeFileSync(zipPath, zip);
-  await repairBinaryFromVerifiedArchive(zipPath, dir, bin, exec);
+  await repairBinaryFromVerifiedArchive(zipPath, dir, bin, exec, deps.signal);
   return bin;
 }
 
@@ -145,11 +273,12 @@ async function repairBinaryFromVerifiedArchive(
   zipPath: string,
   dir: string,
   bin: string,
-  exec: typeof execCommand
+  exec: typeof execCommand,
+  signal?: AbortSignal
 ): Promise<void> {
   const verifyDir = mkdtempSync(join(dir, '.verify-'));
   try {
-    await exec('unzip', ['-o', '-q', zipPath, 'tofu', '-d', verifyDir]);
+    await exec('unzip', ['-o', '-q', zipPath, 'tofu', '-d', verifyDir], { signal });
     let candidate = join(verifyDir, 'tofu');
     if (!existsSync(candidate)) {
       const windowsCandidate = join(verifyDir, 'tofu.exe');

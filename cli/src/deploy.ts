@@ -9,7 +9,15 @@ import {
   newDeployId,
   resourceTag,
 } from './config.js';
-import { TofuManifest, ensureTofu, execCommand } from './tofu.js';
+import {
+  InterruptedError,
+  TofuManifest,
+  abortable,
+  ensureTofu,
+  execCommand,
+  interruptionError,
+  throwIfAborted,
+} from './tofu.js';
 import {
   assertRegion,
   assertSize,
@@ -46,6 +54,7 @@ export interface UpDeps {
   log?: (msg: string) => void;
   waitForRuntimeImpl?: (url: string) => Promise<void>;
   tailnetInfoImpl?: typeof readTailnetInfo;
+  signal?: AbortSignal;
 }
 
 export function defaultAssetsDir(): string {
@@ -191,7 +200,8 @@ function validateResume(
 async function assertNoCloudDeployCollision(
   deployId: string,
   doToken: string,
-  fetchImpl: typeof fetch
+  fetchImpl: typeof fetch,
+  signal?: AbortSignal
 ): Promise<void> {
   const tag = resourceTag(deployId);
   let response: Response;
@@ -200,12 +210,15 @@ async function assertNoCloudDeployCollision(
       `https://api.digitalocean.com/v2/droplets?tag_name=${encodeURIComponent(tag)}&per_page=1`,
       { headers: { Authorization: `Bearer ${doToken}`, 'Content-Type': 'application/json' } }
     );
-  } catch {
+  } catch (error) {
+    if (error instanceof InterruptedError || signal?.aborted) {
+      throw interruptionError(signal);
+    }
     throw new UserError(`Could not verify that deploy id ${deployId} is unused in DigitalOcean. No resources were created; try again.`);
   }
   if (response.status === 401) throw new UserError('DigitalOcean rejected the API token (401).');
   if (!response.ok) throw new UserError(`DigitalOcean API error while checking deploy id ${deployId}: HTTP ${response.status}`);
-  const body = (await response.json()) as { droplets?: unknown[] };
+  const body = (await abortable(response.json(), signal)) as { droplets?: unknown[] };
   if ((body.droplets ?? []).length > 0) {
     throw new UserError(
       `DigitalOcean already has a VM tagged ${tag}, but no usable local state exists. ` +
@@ -231,6 +244,10 @@ export interface RuntimeWaitDeps {
   sleepImpl?: (milliseconds: number) => Promise<void>;
   attempts?: number;
   delayMs?: number;
+  requestTimeoutMs?: number;
+  signal?: AbortSignal;
+  /** Printed deployment id required to resume without creating another VM. */
+  deployId?: string;
 }
 
 export function runtimeWaitAttempts(runtime: UpOptions['runtime']): number {
@@ -249,11 +266,17 @@ export interface TailnetInfo {
  * The suffix is needed for the HTTPS certificate name exposed by Tailscale
  * Serve; the VM auth key must belong to this same tailnet.
  */
-export async function readTailnetInfo(exec: typeof execCommand = execCommand): Promise<TailnetInfo> {
+export async function readTailnetInfo(
+  exec: typeof execCommand = execCommand,
+  signal?: AbortSignal
+): Promise<TailnetInfo> {
   let stdout: string;
   try {
-    ({ stdout } = await exec('tailscale', ['status', '--json']));
-  } catch {
+    ({ stdout } = await exec('tailscale', ['status', '--json'], { signal }));
+  } catch (error) {
+    if (error instanceof InterruptedError || signal?.aborted) {
+      throw interruptionError(signal);
+    }
     throw new UserError(
       'Tailscale is not running on this device. Install it, sign in to the same tailnet as the VM auth key, and re-run.'
     );
@@ -289,13 +312,16 @@ export async function readTailnetInfo(exec: typeof execCommand = execCommand): P
 /** Wait until cloud-init has started the browser surface over Tailscale. */
 export async function waitForRuntimeReady(url: string, deps: RuntimeWaitDeps = {}): Promise<void> {
   const fetchImpl = deps.fetchImpl ?? fetch;
-  const sleep = deps.sleepImpl ?? ((milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
   const attempts = deps.attempts ?? 240;
   const delayMs = deps.delayMs ?? 5000;
+  const requestTimeoutMs = deps.requestTimeoutMs ?? 5000;
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
+    throwIfAborted(deps.signal);
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
+    const onInterrupt = () => controller.abort(interruptionError(deps.signal));
+    deps.signal?.addEventListener('abort', onInterrupt, { once: true });
+    const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
     try {
       const response = await fetchImpl(url, { signal: controller.signal });
       if (response.headers.get('x-aideploy-bootstrap-status') === '1') {
@@ -308,7 +334,7 @@ export async function waitForRuntimeReady(url: string, deps: RuntimeWaitDeps = {
             const message = typeof status.message === 'string' ? status.message.slice(0, 300) : 'Setup failed.';
             throw new UserError(
               `The VM bootstrap failed during ${step}: ${message} ` +
-                'Your state was kept: re-run the same command to resume, or use ' +
+                `Your state was kept: ${resumeInstruction(deps.deployId)}, or use ` +
                 '`tailscale ssh root@<hostname>` and inspect /var/log/aideploy-bootstrap.log.'
             );
           }
@@ -317,18 +343,46 @@ export async function waitForRuntimeReady(url: string, deps: RuntimeWaitDeps = {
         return;
       }
     } catch (err) {
+      if (deps.signal?.aborted) throw interruptionError(deps.signal);
       if (err instanceof UserError) throw err;
       // Bootstrap and tailnet DNS commonly need several minutes. Retry below.
     } finally {
       clearTimeout(timeout);
+      deps.signal?.removeEventListener('abort', onInterrupt);
     }
-    if (attempt < attempts) await sleep(delayMs);
+    if (attempt < attempts) {
+      if (deps.sleepImpl) await abortable(deps.sleepImpl(delayMs), deps.signal);
+      else await interruptibleDelay(delayMs, deps.signal);
+    }
   }
   throw new UserError(
     `The VM exists, but the runtime did not become reachable at ${url}. ` +
-      'Your state was kept: re-run the same command to resume, or use ' +
+      `Your state was kept: ${resumeInstruction(deps.deployId)}, or use ` +
       '`tailscale ssh root@<hostname>` and inspect /var/log/aideploy-bootstrap.log.'
   );
+}
+
+function resumeInstruction(deployId?: string): string {
+  return deployId
+    ? `re-run the same command with \`--deploy-id ${deployId}\` to resume`
+    : 're-run the original `aideploy up` command with the printed `--deploy-id <id>` to resume';
+}
+
+/** Default readiness backoff that releases its timer immediately on Ctrl-C. */
+function interruptibleDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    let timer: NodeJS.Timeout | undefined;
+    const finish = (next: () => void) => {
+      if (timer) clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      next();
+    };
+    const onAbort = () => finish(() => reject(interruptionError(signal)));
+    timer = setTimeout(() => finish(resolve), milliseconds);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+  });
 }
 
 export async function up(opts: UpOptions, secrets: Secrets, deps: UpDeps = {}): Promise<UpResult> {
@@ -336,13 +390,21 @@ export async function up(opts: UpOptions, secrets: Secrets, deps: UpDeps = {}): 
   const log = deps.log ?? ((m: string) => process.stderr.write(`${m}\n`));
   const assetsDir = deps.assetsDir ?? defaultAssetsDir();
   const manifest = deps.manifest ?? loadManifest(assetsDir);
+  const fetchImpl = withSignal(deps.fetchImpl ?? fetch, deps.signal);
+  throwIfAborted(deps.signal);
 
   // Local tailnet + live cloud validation before any resource is created.
-  const tailnet = await (deps.tailnetInfoImpl ?? readTailnetInfo)(exec);
-  const [catalog, digitalOceanAccountUuid]: [DoCatalog, string] = await Promise.all([
-    fetchDoCatalog(secrets.doToken, { fetchImpl: deps.fetchImpl }),
-    fetchDoAccountUuid(secrets.doToken, { fetchImpl: deps.fetchImpl }),
-  ]);
+  const tailnet = await abortable(
+    (deps.tailnetInfoImpl ?? readTailnetInfo)(exec, deps.signal),
+    deps.signal
+  );
+  const [catalog, digitalOceanAccountUuid]: [DoCatalog, string] = await abortable(
+    Promise.all([
+      fetchDoCatalog(secrets.doToken, { fetchImpl }),
+      fetchDoAccountUuid(secrets.doToken, { fetchImpl }),
+    ]),
+    deps.signal
+  );
   assertRegion(catalog, opts.region);
   const size = opts.size ?? DEFAULT_SIZE;
   assertSize(catalog, size, opts.region);
@@ -396,7 +458,7 @@ export async function up(opts: UpOptions, secrets: Secrets, deps: UpDeps = {}): 
           'Run `aideploy doctor` before creating anything else, or use a new --deploy-id.'
       );
     }
-    await assertNoCloudDeployCollision(deployId, secrets.doToken, deps.fetchImpl ?? fetch);
+    await assertNoCloudDeployCollision(deployId, secrets.doToken, fetchImpl, deps.signal);
     if (presentManagedFiles.length === managedFiles.length) {
       // Downloads, `tofu init`, and an early failed apply can all stop before
       // OpenTofu writes state. A complete, matching local checkpoint is safe
@@ -414,10 +476,23 @@ export async function up(opts: UpOptions, secrets: Secrets, deps: UpDeps = {}): 
   writeDeployFiles(dir, cfg, secrets);
   ensurePrivateDir(join(dir, '.terraform'));
 
-  const tofu = await (deps.ensureTofuImpl ?? ensureTofu)(manifest, { execImpl: exec, fetchImpl: deps.fetchImpl });
+  const tofu = await abortable(
+    (deps.ensureTofuImpl ?? ensureTofu)(manifest, {
+      execImpl: exec,
+      fetchImpl,
+      signal: deps.signal,
+    }),
+    deps.signal
+  );
 
   log('Initializing infrastructure engine...');
-  await execPrivate(() => exec(tofu, ['init', '-input=false', '-no-color'], { cwd: tfDir, env: envFor(dir) }));
+  await execPrivate(() =>
+    exec(tofu, ['init', '-input=false', '-no-color'], {
+      cwd: tfDir,
+      env: envFor(dir),
+      signal: deps.signal,
+    })
+  );
   log('Creating your agent VM (this takes a few minutes)...');
   let ok = false;
   try {
@@ -426,6 +501,10 @@ export async function up(opts: UpOptions, secrets: Secrets, deps: UpDeps = {}): 
         cwd: tfDir,
         env: envFor(dir),
         stdio: 'inherit',
+        signal: deps.signal,
+        // OpenTofu may need longer than a generic command timeout to persist
+        // provider reconciliation and state after its first interrupt.
+        interruptGraceMs: null,
       })
     );
     secureStateFiles(dir);
@@ -433,6 +512,7 @@ export async function up(opts: UpOptions, secrets: Secrets, deps: UpDeps = {}): 
       exec(tofu, ['output', '-no-color', `-state=${statePath}`, '-json'], {
         cwd: tfDir,
         env: envFor(dir),
+        signal: deps.signal,
       })
     );
     const outputs = JSON.parse(stdout);
@@ -476,13 +556,20 @@ export async function up(opts: UpOptions, secrets: Secrets, deps: UpDeps = {}): 
     }
     log(`VM created. Waiting for ${opts.runtime} to become ready at ${dashboardUrl}...`);
     const readinessUrl = opts.runtime === 'openclaw' ? `${dashboardUrl}/_aideploy/status` : dashboardUrl;
-    await (
-      deps.waitForRuntimeImpl ??
-      ((url) => waitForRuntimeReady(url, {
-        fetchImpl: deps.fetchImpl,
-        attempts: runtimeWaitAttempts(opts.runtime),
-      }))
-    )(readinessUrl);
+    await abortable(
+      (
+        deps.waitForRuntimeImpl ??
+        ((url) => waitForRuntimeReady(url, {
+          // waitForRuntimeReady composes its per-request timeout with the
+          // outer interrupt itself. A pre-wrapped fetch would replace it.
+          fetchImpl: deps.fetchImpl,
+          attempts: runtimeWaitAttempts(opts.runtime),
+          signal: deps.signal,
+          deployId,
+        }))
+      )(readinessUrl),
+      deps.signal
+    );
     ok = true;
     return {
       deployId,
@@ -499,11 +586,14 @@ export async function up(opts: UpOptions, secrets: Secrets, deps: UpDeps = {}): 
     // OpenTofu may write state before returning an error. Never leave that
     // secret-bearing file at the host's default umask.
     secureStateFiles(dir);
-    await sendPing(
-      opts.telemetryConsent,
-      { event: ok ? 'deploy_completed' : 'deploy_failed', cliVersion: opts.cliVersion, cloud: opts.cloud, runtime: opts.runtime, ok },
-      { fetchImpl: deps.fetchImpl }
-    );
+    if (!deps.signal?.aborted) {
+      await sendPing(
+        opts.telemetryConsent,
+        { event: ok ? 'deploy_completed' : 'deploy_failed', cliVersion: opts.cliVersion, cloud: opts.cloud, runtime: opts.runtime, ok },
+        { fetchImpl: deps.fetchImpl, signal: deps.signal }
+      );
+      throwIfAborted(deps.signal);
+    }
   }
 
   function envFor(stateDir: string): NodeJS.ProcessEnv {
@@ -514,4 +604,10 @@ export async function up(opts: UpOptions, secrets: Secrets, deps: UpDeps = {}): 
       TF_CLI_ARGS_destroy: `-var-file=${join(stateDir, 'deploy.auto.tfvars.json')} -var-file=${join(stateDir, 'secrets.auto.tfvars.json')}`,
     };
   }
+}
+
+function withSignal(fetchImpl: typeof fetch, signal?: AbortSignal): typeof fetch {
+  if (!signal) return fetchImpl;
+  return ((input: RequestInfo | URL, init?: RequestInit) =>
+    abortable(fetchImpl(input, { ...init, signal }), signal)) as typeof fetch;
 }

@@ -7,8 +7,9 @@ Thanks for considering it. Honest ground rules first:
   Telegram" get reviewed first.
 - **Support boundaries are real.** DigitalOcean + OpenClaw + Telegram is the
   default beta path, and DigitalOcean + Hermes + Telegram is an alternate beta
-  path. AWS/GCP/Azure modules are community-supported — your PRs largely ARE
-  the support.
+  path. AWS and GCP modules are community-supported — your PRs largely ARE the
+  support. Azure is retained compatibility/validate-only code; new Azure
+  deployment paths are out of scope.
 - **Licensing:** contributions to everything except `cli/` are accepted
   under Apache-2.0. Contributions to `cli/` are accepted under
   FSL-1.1-ALv2 (which converts to Apache-2.0 two years after each release).

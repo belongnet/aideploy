@@ -2,6 +2,8 @@
 
 `aideploy` deploys a private OpenClaw or Hermes Agent runtime into your own
 DigitalOcean account. Both runtime choices are currently beta.
+The CLI supports macOS and Linux on amd64 and arm64; Windows is not yet
+supported because graceful OpenTofu interruption requires POSIX process groups.
 
 ```bash
 npx aideploy up
