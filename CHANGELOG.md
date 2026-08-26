@@ -6,6 +6,12 @@ tarball when npm publishing is enabled.
 
 ## Unreleased
 
+### Fixed
+
+- Restored the 166-commit audited public-only development history to `main`
+  without rewriting the signed beta release commits, and added a CI ancestry
+  guard so the filtered and clean-launch lineages cannot be dropped again.
+
 ## [0.4.2-beta.5] - 2026-08-25
 
 ### Fixed

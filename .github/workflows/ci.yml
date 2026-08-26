@@ -8,6 +8,17 @@ on:
 permissions: {}
 
 jobs:
+  history-contract:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned
+        with:
+          fetch-depth: 0
+      - run: ./scripts/verify-public-history.sh
+      - run: ./scripts/test-public-history-contract.sh
+
   cli:
     name: cli (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
