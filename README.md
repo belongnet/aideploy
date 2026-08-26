@@ -86,10 +86,10 @@ the tagged source release:
 (
 set -Eeuo pipefail
 
-git clone --branch v0.4.2-beta.4 --depth 1 https://github.com/belongnet/aideploy.git
+git clone --branch v0.4.2-beta.5 --depth 1 https://github.com/belongnet/aideploy.git
 cd aideploy
 
-release=v0.4.2-beta.4
+release=v0.4.2-beta.5
 digest_dir="$(mktemp -d)"
 manifest="$digest_dir/aideploy-base-$release.manifest.json"
 bundle="$manifest.sigstore.json"
@@ -279,11 +279,11 @@ the selected customer cloud.
 - Public releases include deterministic source archives, manifests, SHA-256
   values, and keyless Sigstore bundles.
 
-Verify the beta.4 release manifest, then verify the exact OpenClaw image digest
+Verify the beta.5 release manifest, then verify the exact OpenClaw image digest
 recorded in it:
 
 ```bash
-release=v0.4.2-beta.4
+release=v0.4.2-beta.5
 release_dir="$(mktemp -d)"
 base="https://github.com/belongnet/aideploy/releases/download/$release/aideploy-base-$release.manifest.json"
 curl -fsSL "$base" -o "$release_dir/manifest.json"
