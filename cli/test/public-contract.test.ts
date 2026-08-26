@@ -587,6 +587,44 @@ describe('public workflows', () => {
     }
   });
 
+  it('uses Node 24-native setup actions', () => {
+    const workflows = new Map(
+      ['ci.yml', 'e2e-live.yml', 'release.yml'].map((workflow) => [
+        workflow,
+        text(join(publicRoot, '.github/workflows', workflow)),
+      ]),
+    );
+    const job = (workflow: string, name: string): string => {
+      const yaml = workflows.get(workflow) ?? '';
+      const marker = `  ${name}:\n`;
+      const start = yaml.indexOf(marker);
+      expect(start).toBeGreaterThanOrEqual(0);
+      const remainder = yaml.slice(start + marker.length);
+      const nextJob = remainder.search(/^  \S/m);
+      const end = nextJob === -1 ? undefined : start + marker.length + nextJob;
+      return yaml.slice(start, end);
+    };
+    const setupNode = 'actions/setup-node@820762786026740c76f36085b0efc47a31fe5020'; // v7.0.0
+    const setupOpenTofu =
+      'opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4'; // v2.0.2
+    const setupActionRefs = (yaml: string): string[] =>
+      [
+        ...yaml.matchAll(
+          /^\s*-\s+uses:\s+((?:actions\/setup-node|opentofu\/setup-opentofu)@[a-f0-9]{40})(?:\s+#.*)?$/gm,
+        ),
+      ].map((match) => match[1]);
+
+    expect(setupActionRefs(job('ci.yml', 'cli'))).toContain(setupNode);
+    expect(setupActionRefs(job('ci.yml', 'dashboard'))).toContain(setupNode);
+    expect(setupActionRefs(job('e2e-live.yml', 'deploy-answer-destroy'))).toContain(setupNode);
+    expect(setupActionRefs(job('release.yml', 'npm'))).toContain(setupNode);
+    expect(setupActionRefs(job('ci.yml', 'tofu-validate'))).toContain(setupOpenTofu);
+
+    const allActionRefs = [...workflows.values()].flatMap(setupActionRefs);
+    expect(allActionRefs).toHaveLength(5);
+    expect(new Set(allActionRefs)).toEqual(new Set([setupNode, setupOpenTofu]));
+  });
+
   it('installs Gitleaks from its canonical Go module path', () => {
     const toolingPath = join(privateRoot, '.github/workflows/oss-tooling-ci.yml');
     if (!existsSync(toolingPath)) return;
