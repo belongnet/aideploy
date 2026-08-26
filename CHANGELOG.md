@@ -8,6 +8,8 @@ tarball when npm publishing is enabled.
 
 ### Fixed
 
+- Replaced a provider-shaped Tailscale test fixture with an explicit non-secret
+  value and a regression assertion, preventing false credential alerts.
 - Restored the 166-commit audited public-only development history to `main`
   without rewriting the signed beta release commits, and added a CI ancestry
   guard so the filtered and clean-launch lineages cannot be dropped again.
