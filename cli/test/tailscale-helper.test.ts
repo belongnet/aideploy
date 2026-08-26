@@ -7,6 +7,9 @@ import { fileURLToPath } from 'node:url';
 
 const cliRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const helper = join(cliRoot, 'scripts/tailscale-e2e-auth-key.sh');
+// Provider-shaped fake keys trigger GitHub secret-scanning alerts even when
+// they are deliberately invalid, so keep this lifecycle fixture unambiguous.
+const fakeAuthKey = 'tskey-test-fixture';
 
 describe('Tailscale E2E key lifecycle', () => {
   let temp: string;
@@ -24,7 +27,7 @@ if [[ "$*" == *'/oauth/token'* ]]; then
 elif [[ "$*" == *'-X DELETE'* ]]; then
   printf '{}'
 else
-  printf '{"id":"key-123","key":"tskey-auth-test-secret"}'
+  printf '{"id":"key-123","key":"${fakeAuthKey}"}'
 fi
 `
     );
@@ -34,6 +37,8 @@ fi
   afterEach(() => rmSync(temp, { recursive: true, force: true }));
 
   it('exports the cleanup id before the masked key and revokes it', () => {
+    expect(fakeAuthKey).toMatch(/^tskey-/);
+    expect(fakeAuthKey).not.toMatch(/^tskey-(?:auth|api)-/);
     const output = join(temp, 'github-output');
     const keyIdFile = join(temp, 'cleanup', 'tailscale-key-id');
     const curlLog = join(temp, 'curl.log');
@@ -48,8 +53,8 @@ fi
     };
     const mint = spawnSync('bash', [helper, 'mint'], { env, encoding: 'utf8' });
     expect(mint.status).toBe(0);
-    expect(mint.stdout).toContain('::add-mask::tskey-auth-test-secret');
-    expect(readFileSync(output, 'utf8')).toBe('key_id=key-123\nauth_key=tskey-auth-test-secret\n');
+    expect(mint.stdout).toContain(`::add-mask::${fakeAuthKey}`);
+    expect(readFileSync(output, 'utf8')).toBe(`key_id=key-123\nauth_key=${fakeAuthKey}\n`);
     expect(readFileSync(keyIdFile, 'utf8')).toBe('key-123\n');
     expect(statSync(keyIdFile).mode & 0o777).toBe(0o600);
     expect(readFileSync(curlLog, 'utf8')).toContain('"keyType":"auth"');
