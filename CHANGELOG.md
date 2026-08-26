@@ -6,6 +6,8 @@ tarball when npm publishing is enabled.
 
 ## Unreleased
 
+## [0.4.2-beta.5] - 2026-08-25
+
 ### Fixed
 
 - The deprecated dashboard reference packages now use patched Next.js, PostCSS,
