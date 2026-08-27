@@ -29,6 +29,10 @@ npm run test:package
 ./scripts/backup-smoke.sh
 SMOKE_UP=1 ./scripts/runtime-smoke.sh openclaw
 SMOKE_UP=1 ./scripts/runtime-smoke.sh hermes
+
+# From the repository root:
+npm --prefix web test
+npm --prefix web run build
 ```
 
 CI on pull requests is credential-free by design: lint, unit tests,
