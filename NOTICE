@@ -21,3 +21,7 @@ which are separate works under their own licenses:
   Hermes browser surface; not distributed in this repository.
 - OpenTofu (https://opentofu.org) — MPL-2.0. Downloaded by the CLI as a
   pinned, checksum-verified binary; not distributed in this repository.
+- Pretext (https://github.com/chenglou/pretext) — MIT License. A minified
+  browser bundle is distributed in `web/vendor/pretext.js`; the complete
+  license is retained beside it in `web/vendor/pretext.LICENSE`, and its
+  upstream version, commit, and sha256 in `web/vendor/pretext.PROVENANCE`.
