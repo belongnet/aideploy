@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -92,10 +93,9 @@ test('documents the public support boundary instead of emitting hosted-only flag
   assert.deepEqual(CLOUDS.map(({ value }) => value), ['do']);
   assert.deepEqual(CHANNELS.map(({ value }) => value), ['telegram']);
   assert.deepEqual(RUNTIMES.map(({ value }) => value), ['hermes', 'openclaw']);
-  assert.deepEqual(
-    REGIONS.map(({ value }) => value),
-    ['nyc3', 'nyc1', 'sfo3', 'tor1', 'ams3', 'lon1', 'fra1', 'blr1', 'sgp1', 'syd1'],
-  );
+  // The exact region set is pinned to the CLI's fallback catalog by its own
+  // test; duplicating the list here would just be a second thing to forget.
+  assert.ok(REGIONS.length >= 8, 'region catalog looks truncated');
   assert.match(html, /Hosted wizard adds/);
   assert.match(html, /Hosted channels/);
   assert.doesNotMatch(buildSourceCommand(DEFAULT_CHOICES), /(?:ovh|aws|gcp|azure|whatsapp|slack)/);
@@ -175,6 +175,85 @@ test('offers exactly the catalog choices in the markup, with no drift either way
   }
 });
 
+test('offers only regions the CLI will still accept when its API is down', async () => {
+  const validate = await read('cli/src/validate.ts');
+  const fallback = validate.match(/FALLBACK_REGIONS = \[([^\]]+)\]/);
+  assert.ok(fallback, 'could not read FALLBACK_REGIONS from cli/src/validate.ts');
+  const cliRegions = [...fallback[1].matchAll(/'([a-z0-9]+)'/g)].map((m) => m[1]);
+
+  // The CLI prefers the account's live DigitalOcean catalog but falls back to
+  // this fixed list when the API is unreachable. Publishing a region the
+  // fallback lacks hands the user a command their own CLI rejects.
+  assert.deepEqual(
+    REGIONS.map(({ value }) => value).sort(),
+    [...cliRegions].sort(),
+    'web region list drifted from the CLI fallback catalog',
+  );
+
+  const html = await read('web/index.html');
+  for (const { value } of REGIONS) assert.match(html, new RegExp(`value="${value}"`));
+  const offered = [...html.matchAll(/<option value="([a-z0-9]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(offered.sort(), [...cliRegions].sort(), 'markup drifted from the catalog');
+});
+
+test('refuses to show a copyable command when framed or when JS is off', async () => {
+  const [html, app, css] = await Promise.all([
+    read('web/index.html'),
+    read('web/app.js'),
+    read('web/styles.css'),
+  ]);
+
+  // GitHub Pages cannot send `frame-ancestors` and a <meta> CSP cannot express
+  // it, so framing is refused in script and enforced in CSS.
+  assert.match(app, /window\.top !== window\.self/);
+  assert.match(app, /dataset\.framed = 'true'/);
+  assert.match(css, /\[data-framed='true'\][\s\S]*?\.copy-button/);
+  // The warning is a real element, not ::after content: a pseudo-element is
+  // invisible to assistive tech and vanishes with the stylesheet.
+  assert.match(html, /class="framed-warning"/);
+  assert.match(css, /\[data-framed='true'\] \.framed-warning/);
+
+  // Without JS the controls would still move while the command stayed frozen
+  // at the default, so the command is hidden until this script proves it ran.
+  assert.match(html, /<html lang="en" class="no-js">/);
+  assert.match(app, /classList\.remove\('no-js'\)/);
+  for (const hidden of ['.no-js .terminal', '.no-js .copy-button']) {
+    assert.ok(css.includes(hidden), `styles.css is missing ${hidden}`);
+  }
+  assert.match(html, /class="noscript-warning"/);
+
+  // An inline <style> would need style-src 'unsafe-inline'; the class does not.
+  assert.match(html, /style-src 'self'/);
+  assert.doesNotMatch(html, /<style/);
+});
+
+test('self-hosts its fonts and pins them to recorded provenance', async () => {
+  const provenance = await read('web/fonts/PROVENANCE');
+  const expected = {
+    'inter-latin-400-normal.woff2':
+      '8909904ab6c872eb994093482a88a28eca2cd95912d7b6fecd72103b0dc07edc',
+    'inter-latin-500-normal.woff2':
+      'f3779f1efccc4bdcdf9c0a02ab95bf6bd092ed09c48c08cedc725889edd1d19f',
+    'inter-latin-600-normal.woff2':
+      'f9a06e79cd3a2a20951c0f0e28f66dd0e6d3fda73911d640a2125c8fcb78f21a',
+  };
+
+  for (const [file, digest] of Object.entries(expected)) {
+    const bytes = await readFile(join(repoRoot, 'web/fonts', file));
+    assert.equal(createHash('sha256').update(bytes).digest('hex'), digest, `${file} changed`);
+    assert.ok(provenance.includes(digest), `PROVENANCE is missing the digest for ${file}`);
+  }
+
+  // Every @font-face must resolve to this origin, or the page starts making
+  // the external request its own copy says it never makes.
+  const css = await read('web/styles.css');
+  const sources = [...css.matchAll(/src:\s*url\('([^']+)'\)/g)].map((m) => m[1]);
+  assert.equal(sources.length, Object.keys(expected).length);
+  for (const src of sources) assert.match(src, /^\.\/fonts\//);
+  assert.doesNotMatch(css, /@import|https?:\/\//);
+  assert.match(await read('NOTICE'), /Inter \(https:\/\/github\.com\/rsms\/inter\)/);
+});
+
 test('executes no third-party code on the published page', async () => {
   const [html, build] = await Promise.all([read('web/index.html'), read('web/build.mjs')]);
 
@@ -194,6 +273,10 @@ test('executes no third-party code on the published page', async () => {
 test('ships only the explicit static-site allowlist', async () => {
   const build = await read('web/build.mjs');
   assert.match(build, /const publicFiles = \[/);
+  assert.match(build, /const fontFiles = \[/);
+  for (const font of ['inter-latin-400-normal', 'Inter.LICENSE']) {
+    assert.ok(build.includes(font), `build.mjs does not ship ${font}`);
+  }
   for (const file of ['index.html', 'styles.css', 'app.js', 'command.js', 'favicon.svg']) {
     assert.match(build, new RegExp(`'${file.replace('.', '\\.')}[^']*'`));
   }

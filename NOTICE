@@ -21,3 +21,9 @@ which are separate works under their own licenses:
   Hermes browser surface; not distributed in this repository.
 - OpenTofu (https://opentofu.org) — MPL-2.0. Downloaded by the CLI as a
   pinned, checksum-verified binary; not distributed in this repository.
+- Inter (https://github.com/rsms/inter) — SIL Open Font License 1.1. The latin
+  400/500/600 woff2 subsets from the `@fontsource/inter` package are
+  distributed in `web/fonts/`; the complete license is retained beside them in
+  `web/fonts/Inter.LICENSE`, and the upstream package, version, and each file's
+  sha256 in `web/fonts/PROVENANCE`. Font data only; no third-party code runs on
+  the published page.

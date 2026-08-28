@@ -9,13 +9,15 @@ export const RUNTIMES = Object.freeze([
   { value: 'openclaw', label: 'OpenClaw' },
 ]);
 
-// These are the CLI's deliberately small offline fallback set. The CLI checks
-// the signed-in account's live DigitalOcean catalog before creating anything.
+// Exactly the CLI's offline fallback catalog (FALLBACK_REGIONS in
+// cli/src/validate.ts), no more. The CLI prefers the signed-in account's live
+// DigitalOcean catalog, but falls back to that fixed list when the API is
+// unreachable — so offering a region the fallback lacks hands the user a
+// command their own CLI can reject. A test pins this set to the CLI's.
 export const REGIONS = Object.freeze([
   { value: 'nyc3', label: 'New York 3', area: 'United States' },
   { value: 'nyc1', label: 'New York 1', area: 'United States' },
   { value: 'sfo3', label: 'San Francisco 3', area: 'United States' },
-  { value: 'tor1', label: 'Toronto 1', area: 'Canada' },
   { value: 'ams3', label: 'Amsterdam 3', area: 'Netherlands' },
   { value: 'lon1', label: 'London 1', area: 'United Kingdom' },
   { value: 'fra1', label: 'Frankfurt 1', area: 'Germany' },

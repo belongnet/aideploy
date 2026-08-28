@@ -14,6 +14,26 @@ import {
 const labelOf = (options, value) =>
   options.find((option) => option.value === value)?.label ?? value;
 
+// The document ships with `no-js` so a JavaScript-disabled visitor never sees
+// a stale command sitting under live-looking controls. Removing it here is the
+// proof that this script ran.
+document.documentElement.classList.remove('no-js');
+
+// Clickjacking guard. This page's value is that a command copied from it can
+// be trusted, so an attacker's real prize is framing the genuine page and
+// overlaying their own copy control to borrow its credibility. GitHub Pages
+// cannot send `Content-Security-Policy: frame-ancestors`, and a <meta> CSP
+// cannot express it, so the page refuses to render its command while framed.
+if (window.top !== window.self) {
+  document.documentElement.dataset.framed = 'true';
+  try {
+    window.top.location = window.self.location;
+  } catch {
+    // Cross-origin framing blocks the break-out. The CSS driven by
+    // [data-framed] still hides the command, so nothing copyable remains.
+  }
+}
+
 const form = document.querySelector('#command-form');
 const commandOutput = document.querySelector('#command-output');
 const npxOutput = document.querySelector('#npx-output');
