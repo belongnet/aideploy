@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { prepare, layout } from './vendor/pretext.js';
 import {
   DEFAULT_CHOICES,
   REGIONS,
@@ -91,49 +90,5 @@ copyButton.addEventListener('click', async () => {
   }
 });
 
-// Pretext measures the two largest copy blocks after fonts load and whenever
-// their container changes. The browser still owns semantic text rendering.
-async function enableMeasuredText() {
-  await document.fonts.ready;
-  const elements = [...document.querySelectorAll('[data-pretext]')];
-  const prepared = new Map();
-
-  const prepareElement = (element) => {
-    const style = getComputedStyle(element);
-    const font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-    prepared.set(element, prepare(element.textContent ?? '', font));
-  };
-  elements.forEach(prepareElement);
-
-  let frame = 0;
-  const relayout = () => {
-    window.cancelAnimationFrame(frame);
-    frame = window.requestAnimationFrame(() => {
-      for (const element of elements) {
-        const handle = prepared.get(element);
-        if (!handle) continue;
-        const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
-        const { height } = layout(handle, element.clientWidth, lineHeight);
-        element.style.minHeight = `${Math.ceil(height)}px`;
-      }
-    });
-  };
-
-  const resizeObserver = new ResizeObserver(relayout);
-  elements.forEach((element) => resizeObserver.observe(element));
-  elements
-    .filter((element) => element.contentEditable === 'true')
-    .forEach((element) =>
-      new MutationObserver(() => {
-        prepareElement(element);
-        relayout();
-      }).observe(element, { characterData: true, childList: true, subtree: true }),
-    );
-  relayout();
-}
-
 applyChoices(choicesFromSearch(window.location.search || choicesToSearch(DEFAULT_CHOICES)));
 render();
-// Measured text only reserves vertical space. If it fails the command builder
-// still works, so swallow the rejection instead of logging a scary error.
-enableMeasuredText().catch(() => {});

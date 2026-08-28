@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
@@ -131,8 +131,8 @@ test('wires every element and form control the page script reads', async () => {
     assert.match(html, new RegExp(`id="${id}"`), `index.html is missing #${id}`);
   }
 
-  // Attribute hooks the copy button and resize-aware copy depend on.
-  for (const attribute of ['data-copy-label', 'data-pretext']) {
+  // Attribute hooks the copy button depends on.
+  for (const attribute of ['data-copy-label']) {
     assert.match(app, new RegExp(`\\[${attribute}\\]`));
     assert.match(html, new RegExp(`${attribute}\\b`), `index.html is missing [${attribute}]`);
   }
@@ -175,22 +175,20 @@ test('offers exactly the catalog choices in the markup, with no drift either way
   }
 });
 
-test('pins the vendored third-party bundle to its recorded provenance', async () => {
-  const [bundle, provenance] = await Promise.all([
-    readFile(join(repoRoot, 'web/vendor/pretext.js')),
-    read('web/vendor/pretext.PROVENANCE'),
-  ]);
+test('executes no third-party code on the published page', async () => {
+  const [html, build] = await Promise.all([read('web/index.html'), read('web/build.mjs')]);
 
-  // The page executes this bundle, so an unreviewed swap must fail CI rather
-  // than ship. Changing it means changing the digest here in the same diff.
-  const digest = createHash('sha256').update(bundle).digest('hex');
-  assert.equal(digest, 'c85e755d86d33718e66978d18a2733eb5d11cf44747f58846bd390ed0d6f24e7');
-  assert.ok(provenance.includes(digest), 'PROVENANCE records a different sha256 than the bundle');
+  // Every script the page loads must be one of our own first-party files.
+  // A vendored bundle here would be executable third-party code on a public
+  // page whose whole claim is a minimal, auditable surface.
+  const scriptSrcs = [...html.matchAll(/<script[^>]+src=["']([^"']+)["']/g)].map((m) => m[1]);
+  assert.deepEqual(scriptSrcs, ['./app.js']);
+  assert.doesNotMatch(html, /<script[^>]*>[^<]*\S[^<]*<\/script>/, 'no inline script');
+  assert.doesNotMatch(html, /https?:\/\/[^"']*\.(?:js|css)\b/, 'no remote script or style');
 
-  for (const field of ['@chenglou/pretext', '0.0.8', 'a79a6a595d7ea8a07874637b5234ee255b6a4a14']) {
-    assert.ok(provenance.includes(field), `PROVENANCE is missing ${field}`);
-  }
-  assert.match(await read('NOTICE'), /Pretext \(https:\/\/github\.com\/chenglou\/pretext\)/);
+  assert.equal(existsSync(join(repoRoot, 'web/vendor')), false, 'web/vendor must not return');
+  assert.doesNotMatch(build, /vendor/);
+  assert.doesNotMatch(await read('NOTICE'), /web\/vendor/);
 });
 
 test('ships only the explicit static-site allowlist', async () => {
@@ -199,6 +197,5 @@ test('ships only the explicit static-site allowlist', async () => {
   for (const file of ['index.html', 'styles.css', 'app.js', 'command.js', 'favicon.svg']) {
     assert.match(build, new RegExp(`'${file.replace('.', '\\.')}[^']*'`));
   }
-  assert.match(build, /pretext\.LICENSE/);
   assert.doesNotMatch(build, /cp\(root, output/);
 });

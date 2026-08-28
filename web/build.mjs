@@ -17,13 +17,8 @@ const publicFiles = [
 ];
 
 await rm(output, { recursive: true, force: true });
-await mkdir(join(output, 'vendor'), { recursive: true });
+await mkdir(output, { recursive: true });
 await Promise.all(publicFiles.map((file) => cp(join(root, file), join(output, file))));
-await Promise.all(
-  ['pretext.js', 'pretext.LICENSE'].map((file) =>
-    cp(join(root, 'vendor', file), join(output, 'vendor', file)),
-  ),
-);
 await writeFile(join(output, '.nojekyll'), '');
 
-process.stdout.write(`Built ${publicFiles.length + 3} static files in ${output}\n`);
+process.stdout.write(`Built ${publicFiles.length + 1} static files in ${output}\n`);

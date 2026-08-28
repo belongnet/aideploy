@@ -351,8 +351,7 @@ offering it as a competing managed service is restricted for two years per
 release, after which that release converts to Apache-2.0. Details are in
 [`cli/LICENSE.md`](./cli/LICENSE.md).
 
-Built on the MIT-licensed OpenClaw, gstack, and Pretext projects; see
-[NOTICE](./NOTICE).
+Built on the MIT-licensed OpenClaw and gstack projects; see [NOTICE](./NOTICE).
 
 ## Build with us
 
