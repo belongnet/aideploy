@@ -16,9 +16,23 @@ const publicFiles = [
   'sitemap.xml',
 ];
 
+// Self-hosted so the page makes zero external requests. Data, not code: the
+// site still executes only first-party script.
+const fontFiles = [
+  'inter-latin-400-normal.woff2',
+  'inter-latin-500-normal.woff2',
+  'inter-latin-600-normal.woff2',
+  'Inter.LICENSE',
+];
+
 await rm(output, { recursive: true, force: true });
-await mkdir(output, { recursive: true });
+await mkdir(join(output, 'fonts'), { recursive: true });
 await Promise.all(publicFiles.map((file) => cp(join(root, file), join(output, file))));
+await Promise.all(
+  fontFiles.map((file) => cp(join(root, 'fonts', file), join(output, 'fonts', file))),
+);
 await writeFile(join(output, '.nojekyll'), '');
 
-process.stdout.write(`Built ${publicFiles.length + 1} static files in ${output}\n`);
+process.stdout.write(
+  `Built ${publicFiles.length + fontFiles.length + 1} static files in ${output}\n`,
+);

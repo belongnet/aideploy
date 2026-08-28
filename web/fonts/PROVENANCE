@@ -1,0 +1,20 @@
+Vendored font provenance
+========================
+
+The published page loads these files from its own origin so it makes no
+external request. They are font data, not executable code.
+
+Package:   @fontsource/inter
+Version:   5.3.0
+Registry:  https://registry.npmjs.org/@fontsource/inter/-/inter-5.3.0.tgz
+Integrity: sha512-RofMylZmjlJEfELXeNHFWBRcSs75rGU/6bV2S2jfnvv/3rPXPGe0LgUJTklcHZ9lM4OZmAVFhcJPnACfb91A3g==
+Upstream:  https://github.com/rsms/inter
+License:   SIL Open Font License 1.1 (see Inter.LICENSE)
+
+The npm tarball integrity above was verified against the registry when these
+files were vendored. Each extracted file's sha256 is pinned by the test suite,
+so replacing one is a reviewable diff rather than a silent swap.
+
+8909904ab6c872eb994093482a88a28eca2cd95912d7b6fecd72103b0dc07edc  inter-latin-400-normal.woff2
+f3779f1efccc4bdcdf9c0a02ab95bf6bd092ed09c48c08cedc725889edd1d19f  inter-latin-500-normal.woff2
+f9a06e79cd3a2a20951c0f0e28f66dd0e6d3fda73911d640a2125c8fcb78f21a  inter-latin-600-normal.woff2
