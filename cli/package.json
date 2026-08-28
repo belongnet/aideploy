@@ -1,6 +1,6 @@
 {
   "name": "aideploy",
-  "version": "0.4.2-beta.6",
+  "version": "0.4.2-beta.7",
   "description": "Production deployment kit for OpenClaw and Hermes agents, on your own cloud.",
   "license": "FSL-1.1-ALv2",
   "repository": {
