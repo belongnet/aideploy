@@ -4,7 +4,7 @@ All notable public releases are documented here. GitHub Releases carry the
 commit-by-commit notes, signed hosted-build source assets, and the exact npm
 tarball when npm publishing is enabled.
 
-## Unreleased
+## [0.4.2-beta.7] - 2026-08-28
 
 ### Changed
 
