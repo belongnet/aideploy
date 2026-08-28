@@ -4,6 +4,27 @@ All notable public releases are documented here. GitHub Releases carry the
 commit-by-commit notes, signed hosted-build source assets, and the exact npm
 tarball when npm publishing is enabled.
 
+## Unreleased
+
+### Changed
+
+- The command builder now uses the same design as aideploy.co, with Inter
+  self-hosted so adopting it costs the page no external request.
+- The region list is pinned to the CLI's offline fallback catalog. `tor1` was
+  offered but is not in that list, so choosing Toronto could produce a command
+  the CLI rejects when DigitalOcean's catalog API is unreachable.
+
+### Fixed
+
+- The page now refuses to display a copyable command when it is framed by
+  another site, which stops a surrounding page from overlaying its own copy
+  button to hand you a different command.
+- With JavaScript disabled the page previously showed a command frozen at the
+  defaults while the controls still moved. It now hides the command instead of
+  showing one that does not match the selections.
+- Corrected the claim that the page stores nothing: the four choices (never a
+  credential) are mirrored into the query string so links are shareable.
+
 ## [0.4.2-beta.6] - 2026-08-28
 
 ### Added
