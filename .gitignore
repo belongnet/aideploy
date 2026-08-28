@@ -17,3 +17,6 @@ __pycache__/
 # Generated only while packaging the CLI release.
 cli/assets/terraform/
 cli/assets/stack/
+
+# Local output from the static command builder.
+web/.pages/

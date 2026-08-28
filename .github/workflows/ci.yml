@@ -45,6 +45,9 @@ jobs:
         working-directory: cli
       - run: npm run test:package
         working-directory: cli
+      - name: Test the zero-secret command builder
+        if: matrix.os == 'ubuntu-latest'
+        run: npm --prefix web test
 
   dashboard:
     name: dashboard (${{ matrix.package }})

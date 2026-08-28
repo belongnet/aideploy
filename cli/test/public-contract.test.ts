@@ -576,7 +576,7 @@ describe('public workflows', () => {
   });
 
   it('pins every public action to a full commit and denies permissions by default', () => {
-    for (const workflow of ['ci.yml', 'e2e-live.yml', 'release.yml']) {
+    for (const workflow of ['ci.yml', 'e2e-live.yml', 'pages.yml', 'release.yml']) {
       const yaml = text(join(publicRoot, '.github/workflows', workflow));
       expect(yaml).toContain('permissions: {}');
       for (const match of yaml.matchAll(/uses:\s+([^\s#]+)/g)) {
@@ -589,7 +589,7 @@ describe('public workflows', () => {
 
   it('uses Node 24-native setup actions', () => {
     const workflows = new Map(
-      ['ci.yml', 'e2e-live.yml', 'release.yml'].map((workflow) => [
+      ['ci.yml', 'e2e-live.yml', 'pages.yml', 'release.yml'].map((workflow) => [
         workflow,
         text(join(publicRoot, '.github/workflows', workflow)),
       ]),
@@ -617,11 +617,12 @@ describe('public workflows', () => {
     expect(setupActionRefs(job('ci.yml', 'cli'))).toContain(setupNode);
     expect(setupActionRefs(job('ci.yml', 'dashboard'))).toContain(setupNode);
     expect(setupActionRefs(job('e2e-live.yml', 'deploy-answer-destroy'))).toContain(setupNode);
+    expect(setupActionRefs(job('pages.yml', 'build'))).toContain(setupNode);
     expect(setupActionRefs(job('release.yml', 'npm'))).toContain(setupNode);
     expect(setupActionRefs(job('ci.yml', 'tofu-validate'))).toContain(setupOpenTofu);
 
     const allActionRefs = [...workflows.values()].flatMap(setupActionRefs);
-    expect(allActionRefs).toHaveLength(5);
+    expect(allActionRefs).toHaveLength(6);
     expect(new Set(allActionRefs)).toEqual(new Set([setupNode, setupOpenTofu]));
   });
 

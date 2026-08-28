@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#060a18" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="referrer" content="no-referrer" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'; upgrade-insecure-requests"
+    />
+    <meta
+      name="description"
+      content="Build a safe aideploy self-host command without entering credentials in a website. Choose DigitalOcean, Hermes or OpenClaw, a region, and Telegram."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="aideploy command builder" />
+    <meta
+      property="og:description"
+      content="Choose the deployment shape. Copy the exact self-host command. Credentials stay in your terminal."
+    />
+    <meta property="og:url" content="https://belongnet.github.io/aideploy/" />
+    <link rel="canonical" href="https://belongnet.github.io/aideploy/" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./app.js"></script>
+    <title>Build your aideploy command</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#builder">Skip to command builder</a>
+
+    <header class="site-header">
+      <a class="brand" href="./" aria-label="aideploy command builder home">
+        <span class="brand-mark" aria-hidden="true">AI</span>
+        <span>AIDEPLOY</span>
+      </a>
+      <nav aria-label="Primary navigation">
+        <a href="https://github.com/belongnet/aideploy/blob/main/docs/self-host.md">Self-host docs</a>
+        <a href="https://github.com/belongnet/aideploy">GitHub</a>
+        <a
+          class="nav-cta"
+          href="https://www.aideploy.co/?utm_source=github_pages&amp;utm_medium=nav&amp;utm_campaign=command_builder"
+        >
+          Hosted wizard
+          <span aria-hidden="true">↗</span>
+        </a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="page-title">
+        <div class="hero-copy">
+          <p class="eyebrow">Open source · runs in your cloud</p>
+          <h1 id="page-title">Build your self-host command.</h1>
+          <p class="hero-deck">
+            Choose the deployment shape. We build the exact CLI command. Your credentials stay
+            in your terminal.
+          </p>
+        </div>
+        <div class="privacy-proof" aria-label="Privacy guarantee">
+          <span class="privacy-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" role="img">
+              <path d="M7.5 10V7.5a4.5 4.5 0 0 1 9 0V10m-10 0h11a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 17.5 20h-11A1.5 1.5 0 0 1 5 18.5v-7A1.5 1.5 0 0 1 6.5 10Z" />
+            </svg>
+          </span>
+          <span>
+            <strong>No secrets enter this page</strong>
+            <small>No credential fields. No analytics. No network requests.</small>
+          </span>
+        </div>
+      </section>
+
+      <section class="builder-shell" id="builder" aria-labelledby="builder-title">
+        <header class="builder-header">
+          <div>
+            <p class="section-kicker">Four choices</p>
+            <h2 id="builder-title">Configure the public CLI</h2>
+          </div>
+          <ol class="step-rail" aria-label="Builder steps">
+            <li><a href="#cloud"><span>1</span> Cloud</a></li>
+            <li><a href="#runtime"><span>2</span> Runtime</a></li>
+            <li><a href="#region"><span>3</span> Region</a></li>
+            <li><a href="#channel"><span>4</span> Channel</a></li>
+          </ol>
+        </header>
+
+        <form id="command-form" class="builder-grid" novalidate>
+          <div class="choice-stack">
+            <fieldset class="choice-section" id="cloud">
+              <legend><span>01</span> Cloud</legend>
+              <p>The public CLI has one live, billable deployment path today.</p>
+              <label class="choice-card choice-card-wide">
+                <input type="radio" name="cloud" value="do" checked />
+                <span class="choice-indicator" aria-hidden="true"></span>
+                <span class="choice-copy">
+                  <span class="choice-title">
+                    DigitalOcean
+                    <span class="status-badge">Public CLI · live E2E</span>
+                  </span>
+                  <span class="choice-description">One tagged VM, validated before creation.</span>
+                </span>
+              </label>
+              <div class="hosted-options">
+                <span>Hosted wizard adds</span>
+                <ul aria-label="Clouds available in the hosted wizard">
+                  <li>OVHcloud</li>
+                  <li>Google Cloud</li>
+                  <li>AWS</li>
+                  <li>Scaleway</li>
+                </ul>
+                <a
+                  href="https://www.aideploy.co/?utm_source=github_pages&amp;utm_medium=cloud_options&amp;utm_campaign=command_builder"
+                >
+                  Compare hosted options <span aria-hidden="true">↗</span>
+                </a>
+              </div>
+            </fieldset>
+
+            <fieldset class="choice-section" id="runtime">
+              <legend><span>02</span> Runtime</legend>
+              <p>Both runtimes are beta and boot-tested in public CI.</p>
+              <div class="choice-pair">
+                <label class="choice-card">
+                  <input type="radio" name="runtime" value="hermes" checked />
+                  <span class="choice-indicator" aria-hidden="true"></span>
+                  <span class="choice-copy">
+                    <span class="choice-title">Hermes Agent <span class="status-badge">Default</span></span>
+                    <span class="choice-description">Lean single-agent runtime with a skill workspace.</span>
+                  </span>
+                </label>
+                <label class="choice-card">
+                  <input type="radio" name="runtime" value="openclaw" />
+                  <span class="choice-indicator" aria-hidden="true"></span>
+                  <span class="choice-copy">
+                    <span class="choice-title">OpenClaw</span>
+                    <span class="choice-description">Multi-agent gateway with a private browser UI.</span>
+                  </span>
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset class="choice-section" id="region">
+              <legend><span>03</span> Region</legend>
+              <p>Pick the closest stable region. The CLI confirms live availability first.</p>
+              <label class="select-label" for="region-select">DigitalOcean region</label>
+              <div class="select-wrap">
+                <select id="region-select" name="region">
+                  <optgroup label="North America">
+                    <option value="nyc3" selected>New York 3 · nyc3</option>
+                    <option value="nyc1">New York 1 · nyc1</option>
+                    <option value="sfo3">San Francisco 3 · sfo3</option>
+                    <option value="tor1">Toronto 1 · tor1</option>
+                  </optgroup>
+                  <optgroup label="Europe">
+                    <option value="ams3">Amsterdam 3 · ams3</option>
+                    <option value="lon1">London 1 · lon1</option>
+                    <option value="fra1">Frankfurt 1 · fra1</option>
+                  </optgroup>
+                  <optgroup label="Asia Pacific">
+                    <option value="blr1">Bangalore 1 · blr1</option>
+                    <option value="sgp1">Singapore 1 · sgp1</option>
+                    <option value="syd1">Sydney 1 · syd1</option>
+                  </optgroup>
+                </select>
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 7.5 5 5 5-5" /></svg>
+              </div>
+              <p class="field-note">The default 4 GB VM size must also be available in your account.</p>
+            </fieldset>
+
+            <fieldset class="choice-section" id="channel">
+              <legend><span>04</span> Channel</legend>
+              <p>The public self-host path keeps messaging private with outbound polling.</p>
+              <label class="choice-card choice-card-wide">
+                <input type="radio" name="channel" value="telegram" checked />
+                <span class="choice-indicator" aria-hidden="true"></span>
+                <span class="choice-copy">
+                  <span class="choice-title">Telegram <span class="status-badge">Public CLI</span></span>
+                  <span class="choice-description">No public webhook. Only your numeric account ID is allowed.</span>
+                </span>
+              </label>
+              <div class="hosted-options compact">
+                <span>Hosted channels</span>
+                <ul aria-label="Messaging channels available on the hosted platform">
+                  <li>WhatsApp</li>
+                  <li>Slack</li>
+                  <li>Discord</li>
+                  <li>More</li>
+                </ul>
+              </div>
+            </fieldset>
+          </div>
+
+          <aside class="command-panel" aria-labelledby="command-title">
+            <div class="command-panel-head">
+              <div>
+                <p class="section-kicker">Available now</p>
+                <h3 id="command-title">Your source command</h3>
+              </div>
+              <span class="ready-dot"><span aria-hidden="true"></span> Ready</span>
+            </div>
+            <p class="command-context">
+              Run this from the repository root after the
+              <a href="https://github.com/belongnet/aideploy#self-host-in-your-own-cloud">verified source setup</a>.
+            </p>
+            <div class="terminal" aria-label="Generated source command">
+              <div class="terminal-bar" aria-hidden="true">
+                <span></span><span></span><span></span>
+                <strong>terminal</strong>
+              </div>
+              <pre><code id="command-output">node cli/dist/index.js up --cloud do --runtime hermes --region nyc3 --channel telegram --no-telemetry</code></pre>
+            </div>
+            <button class="copy-button" id="copy-command" type="button">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M8 8V5.5A1.5 1.5 0 0 1 9.5 4h9A1.5 1.5 0 0 1 20 5.5v9a1.5 1.5 0 0 1-1.5 1.5H16m-10-8h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z" />
+              </svg>
+              <span data-copy-label>Copy command</span>
+            </button>
+            <p class="copy-status" id="copy-status" aria-live="polite"></p>
+
+            <div class="command-facts">
+              <dl>
+                <div><dt>Cloud</dt><dd>DigitalOcean</dd></div>
+                <div><dt>Runtime</dt><dd id="summary-runtime">Hermes Agent</dd></div>
+                <div><dt>Region</dt><dd id="summary-region">New York 3</dd></div>
+                <div><dt>Channel</dt><dd>Telegram</dd></div>
+              </dl>
+              <ul class="safety-list">
+                <li><span aria-hidden="true">✓</span> One tagged VM</li>
+                <li><span aria-hidden="true">✓</span> Tailscale-private access</li>
+                <li><span aria-hidden="true">✓</span> Ctrl-C recovery state</li>
+                <li><span aria-hidden="true">✓</span> Deterministic teardown</li>
+              </ul>
+            </div>
+
+            <details class="future-command">
+              <summary>npm command <span>Not published yet</span></summary>
+              <p>When the npm publication gate opens, the same choices become:</p>
+              <code id="npx-output">npx aideploy up --cloud do --runtime hermes --region nyc3 --channel telegram --no-telemetry</code>
+            </details>
+          </aside>
+        </form>
+      </section>
+
+      <section class="readiness" id="credentials" aria-labelledby="credentials-title">
+        <header>
+          <p class="section-kicker">Before the command</p>
+          <h2 id="credentials-title">Have these ready.</h2>
+          <p>Open each setup page yourself. Never paste the resulting value into this website.</p>
+        </header>
+        <ol class="readiness-list">
+          <li>
+            <span class="readiness-number">1</span>
+            <div>
+              <h3>DigitalOcean read/write token</h3>
+              <p>The CLI validates the token and account before creating a billable VM.</p>
+            </div>
+            <a href="https://cloud.digitalocean.com/account/api/tokens" target="_blank" rel="noopener noreferrer">
+              Create token <span class="sr-only">(opens in a new tab)</span><span aria-hidden="true">↗</span>
+            </a>
+          </li>
+          <li>
+            <span class="readiness-number">2</span>
+            <div>
+              <h3>One AI provider API key</h3>
+              <p>Choose OpenAI, Anthropic, or Kimi when the CLI asks.</p>
+            </div>
+            <div class="link-cluster" aria-label="AI provider key pages">
+              <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI <span aria-hidden="true">↗</span></a>
+              <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">Anthropic <span aria-hidden="true">↗</span></a>
+              <a href="https://platform.moonshot.ai/console/api-keys" target="_blank" rel="noopener noreferrer">Kimi <span aria-hidden="true">↗</span></a>
+            </div>
+          </li>
+          <li>
+            <span class="readiness-number">3</span>
+            <div>
+              <h3>Telegram bot token and your numeric ID</h3>
+              <p>Create the bot with BotFather, then get your owner ID from userinfobot.</p>
+            </div>
+            <div class="link-cluster" aria-label="Telegram setup links">
+              <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer">BotFather <span aria-hidden="true">↗</span></a>
+              <a href="https://t.me/userinfobot" target="_blank" rel="noopener noreferrer">userinfobot <span aria-hidden="true">↗</span></a>
+            </div>
+          </li>
+          <li>
+            <span class="readiness-number">4</span>
+            <div>
+              <h3>One-off Tailscale auth key</h3>
+              <p>Leave <strong>Reusable off</strong>. Enable MagicDNS and HTTPS certificates first.</p>
+            </div>
+            <div class="link-cluster" aria-label="Tailscale setup links">
+              <a href="https://login.tailscale.com/admin/settings/keys" target="_blank" rel="noopener noreferrer">Auth key <span aria-hidden="true">↗</span></a>
+              <a href="https://login.tailscale.com/admin/dns" target="_blank" rel="noopener noreferrer">DNS settings <span aria-hidden="true">↗</span></a>
+            </div>
+          </li>
+          <li>
+            <span class="readiness-number">5</span>
+            <div>
+              <h3>Your local tools</h3>
+              <p>macOS or Linux, Node.js 18.3+, Cosign, and a device on the same tailnet.</p>
+            </div>
+            <a href="https://github.com/belongnet/aideploy#before-you-deploy">
+              Check prerequisites <span aria-hidden="true">→</span>
+            </a>
+          </li>
+        </ol>
+      </section>
+
+      <section class="hosted-cta" aria-labelledby="hosted-title">
+        <div>
+          <p class="section-kicker">Skip the credential setup</p>
+          <h2 id="hosted-title">Want OAuth, more clouds, more channels, or fleets?</h2>
+          <p>Use the hosted wizard for guided connections, multi-agent deployments, and Command Center operations.</p>
+        </div>
+        <a href="https://www.aideploy.co/?utm_source=github_pages&amp;utm_medium=footer_cta&amp;utm_campaign=command_builder">
+          Open the hosted wizard <span aria-hidden="true">↗</span>
+        </a>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <a class="brand footer-brand" href="./"><span class="brand-mark" aria-hidden="true">AI</span><span>AIDEPLOY</span></a>
+      <p>Open deployment foundation by Belong.</p>
+      <nav aria-label="Footer navigation">
+        <a href="https://github.com/belongnet/aideploy">GitHub</a>
+        <a href="https://github.com/belongnet/aideploy/blob/main/SECURITY.md">Security</a>
+        <a href="https://github.com/belongnet/aideploy/blob/main/docs/self-host.md">Docs</a>
+        <a href="https://www.aideploy.co/?utm_source=github_pages&amp;utm_medium=footer&amp;utm_campaign=command_builder">aideploy.co</a>
+      </nav>
+    </footer>
+  </body>
+</html>
