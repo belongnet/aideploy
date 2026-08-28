@@ -4,7 +4,7 @@ All notable public releases are documented here. GitHub Releases carry the
 commit-by-commit notes, signed hosted-build source assets, and the exact npm
 tarball when npm publishing is enabled.
 
-## Unreleased
+## [0.4.2-beta.6] - 2026-08-28
 
 ### Added
 
@@ -12,9 +12,9 @@ tarball when npm publishing is enabled.
   supported public CLI choices, generates a working verified-source command,
   labels the unpublished npm form honestly, and links users directly to each
   credential setup page without accepting or transmitting credentials.
-- Pinned the one third-party bundle the published page executes to a recorded
-  upstream version, commit, and sha256, and made the test suite fail on any
-  unreviewed change to it.
+- The published page now executes only first-party code. The one vendored
+  third-party bundle was measured, found to have no observable effect, and
+  removed; CI now fails if any third-party, inline, or remote script returns.
 
 ### Fixed
 
