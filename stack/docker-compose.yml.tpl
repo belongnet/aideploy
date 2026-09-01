@@ -1,5 +1,5 @@
 ##
-## OpenClaw Agent Launcher — Docker Compose Template
+## AI Deploy — Docker Compose Template
 ## Handlebars template rendered by the provisioner for N agents.
 ##
 ## Variables: deploy_id, db_password, encryption_key, agent_count, agents[]

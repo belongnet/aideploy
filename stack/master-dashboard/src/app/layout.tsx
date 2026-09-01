@@ -119,7 +119,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             {/* Footer */}
             <div className="border-t border-gray-100 px-5 py-3">
               <p className="text-xs text-gray-400">
-                OpenClaw Agent Launcher v1.0
+                AI Deploy v1.0
               </p>
             </div>
           </aside>

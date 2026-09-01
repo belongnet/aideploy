@@ -1,5 +1,5 @@
 -- ──────────────────────────────────────────────────────────────
--- OpenClaw Agent Launcher — Seed Data
+-- AI Deploy — Seed Data
 -- Called by the provisioner after init.sql and bus_trigger.sql.
 -- Uses environment variables injected at deploy time.
 -- ──────────────────────────────────────────────────────────────

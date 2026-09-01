@@ -1,5 +1,5 @@
 # ──────────────────────────────────────────────────────────────
-# OpenClaw Agent Launcher — Terraform Variables
+# AI Deploy — Terraform Variables
 # ──────────────────────────────────────────────────────────────
 
 variable "cloud_provider" {

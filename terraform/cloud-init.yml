@@ -1,6 +1,6 @@
 #cloud-config
 # ──────────────────────────────────────────────────────────────
-# OpenClaw Agent Launcher — Cloud-Init (REFERENCE ONLY)
+# AI Deploy — Cloud-Init (REFERENCE ONLY)
 #
 # NOTE: The actual cloud-init is generated dynamically by
 # provisioner/src/deployer.ts:generateCloudInit().

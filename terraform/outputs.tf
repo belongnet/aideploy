@@ -1,5 +1,5 @@
 # ──────────────────────────────────────────────────────────────
-# OpenClaw Agent Launcher — Terraform Outputs
+# AI Deploy — Terraform Outputs
 # ──────────────────────────────────────────────────────────────
 
 output "server_ip" {
