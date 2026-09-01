@@ -1,5 +1,5 @@
 -- ──────────────────────────────────────────────────────────────
--- OpenClaw Agent Launcher — Message Bus Trigger
+-- AI Deploy — Message Bus Trigger
 -- Fires pg_notify on every INSERT to public.message_bus
 -- Agents listen via asyncpg: LISTEN agent_bus;
 -- ──────────────────────────────────────────────────────────────

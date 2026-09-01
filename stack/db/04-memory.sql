@@ -1,5 +1,5 @@
 -- ──────────────────────────────────────────────────────────────
--- OpenClaw Agent Launcher — Memory Migration
+-- AI Deploy — Memory Migration
 -- Aligns fresh databases with the runtime memory schema.
 -- ──────────────────────────────────────────────────────────────
 

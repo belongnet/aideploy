@@ -90,7 +90,7 @@ data "aws_ami" "ubuntu" {
 # Security group
 resource "aws_security_group" "openclaw" {
   name_prefix = "openclaw-${var.deploy_id}-"
-  description = "OpenClaw Agent Launcher security group"
+  description = "AI Deploy security group"
 
   dynamic "ingress" {
     for_each = local.webhook_ingress_enabled ? local.webhook_ingress_rules : []

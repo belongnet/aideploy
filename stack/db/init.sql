@@ -1,5 +1,5 @@
 -- ──────────────────────────────────────────────────────────────
--- OpenClaw Agent Launcher — Database Initialization
+-- AI Deploy — Database Initialization
 -- Creates shared tables and per-agent schema template
 -- ──────────────────────────────────────────────────────────────
 
