@@ -1,7 +1,7 @@
 # aideploy command builder
 
 This directory is the zero-secret static command builder published at
-<https://belongnet.github.io/aideploy/>.
+<https://build.aideploy.co/>.
 
 It accepts deployment choices only: the live public cloud (`do`), runtime,
 region, and channel. It has no credential fields, no analytics, and makes no

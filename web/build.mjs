@@ -7,6 +7,9 @@ import { fileURLToPath } from 'node:url';
 const root = dirname(fileURLToPath(import.meta.url));
 const output = join(root, '.pages');
 const publicFiles = [
+  // Tells GitHub Pages which custom domain serves this artifact. Without it a
+  // deploy can reset the domain back to belongnet.github.io.
+  'CNAME',
   'index.html',
   'styles.css',
   'app.js',

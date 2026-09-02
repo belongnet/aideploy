@@ -20,7 +20,7 @@ for the guided OAuth flow, more clouds and channels, multi-agent fleets, and
 managed operations.
 
 [**Launch with the hosted wizard →**](https://www.aideploy.co/?utm_source=github&utm_medium=readme_cta&utm_campaign=public_launch)
- · [**Build a self-host command →**](https://belongnet.github.io/aideploy/)
+ · [**Build a self-host command →**](https://build.aideploy.co/)
  · [**Self-host from source →**](#self-host-in-your-own-cloud)
  · [**Read the release notes →**](https://github.com/belongnet/aideploy/releases)
 
@@ -66,7 +66,7 @@ pretending every hosted feature ships in the public CLI.
 The current public beta supports **DigitalOcean + Telegram**. Choose either
 OpenClaw or Hermes and one of OpenAI, Anthropic, or Kimi.
 
-The [zero-secret command builder](https://belongnet.github.io/aideploy/) turns
+The [zero-secret command builder](https://build.aideploy.co/) turns
 the supported cloud, runtime, region, and channel choices into the exact CLI
 flags. It has no credential fields, analytics, persistence, or outbound data
 requests; credentials are still entered privately in your terminal. Until the
