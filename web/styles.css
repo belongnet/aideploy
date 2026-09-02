@@ -391,6 +391,7 @@ h3 {
 
 .step-rail a {
   display: inline-flex;
+  min-height: 44px;
   align-items: center;
   gap: 8px;
   padding: 8px 14px;
@@ -625,6 +626,9 @@ h3 {
 }
 
 .hosted-options a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
   font-size: 0.85rem;
   font-weight: 500;
 }
@@ -907,6 +911,7 @@ h3 {
 
 .future-command summary {
   display: flex;
+  min-height: 44px;
   align-items: center;
   gap: 10px;
   cursor: pointer;
@@ -1022,6 +1027,11 @@ h3 {
 }
 
 .link-cluster a {
+  display: inline-flex;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
   font-size: 0.85rem;
   font-weight: 500;
   white-space: nowrap;
@@ -1111,6 +1121,11 @@ h3 {
 }
 
 .site-footer nav a {
+  display: inline-flex;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
   color: var(--muted);
   text-decoration: none;
   font-size: 0.88rem;
@@ -1154,9 +1169,30 @@ h3 {
 }
 
 @media (max-width: 720px) {
-  .site-header,
   .site-footer {
     padding-inline: 22px;
+  }
+
+  .site-header-inner {
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 8px 16px 10px;
+  }
+
+  .site-header nav {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.75fr) minmax(0, 1.2fr);
+    width: 100%;
+    gap: 4px;
+  }
+
+  .site-header nav a {
+    padding-inline: 8px;
+    font-size: 0.82rem;
+  }
+
+  .nav-cta {
+    padding-inline: 10px !important;
   }
 
   main {
@@ -1172,6 +1208,14 @@ h3 {
   .readiness-list > li {
     grid-template-columns: auto minmax(0, 1fr);
     padding: 18px 20px;
+  }
+
+  .readiness-list > li > a {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    grid-column: 2;
+    justify-self: start;
   }
 
   .link-cluster {
