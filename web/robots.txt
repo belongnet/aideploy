@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://belongnet.github.io/aideploy/sitemap.xml
+Sitemap: https://build.aideploy.co/sitemap.xml

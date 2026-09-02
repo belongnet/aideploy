@@ -254,6 +254,39 @@ test('self-hosts its fonts and pins them to recorded provenance', async () => {
   assert.match(await read('NOTICE'), /Inter \(https:\/\/github\.com\/rsms\/inter\)/);
 });
 
+test('pins the custom domain that serves the page', async () => {
+  const cname = (await read('web/CNAME')).trim();
+
+  // GitHub Pages reads the custom domain from this file in the deployed
+  // artifact. Drop it and a deploy resets the site to belongnet.github.io,
+  // which every canonical, OG url and README link below would then contradict.
+  assert.equal(cname, 'build.aideploy.co');
+  assert.doesNotMatch(cname, /\s/, 'CNAME must be a bare hostname');
+
+  const [html, robots, sitemap, readme] = await Promise.all([
+    read('web/index.html'),
+    read('web/robots.txt'),
+    read('web/sitemap.xml'),
+    read('README.md'),
+  ]);
+
+  for (const [label, text] of [
+    ['index.html', html],
+    ['robots.txt', robots],
+    ['sitemap.xml', sitemap],
+    ['README.md', readme],
+  ]) {
+    assert.ok(
+      !text.includes('belongnet.github.io/aideploy'),
+      `${label} still points at the pre-custom-domain host`
+    );
+  }
+
+  assert.match(html, /<link rel="canonical" href="https:\/\/build\.aideploy\.co\/" \/>/);
+  assert.match(html, /property="og:url" content="https:\/\/build\.aideploy\.co\/"/);
+  assert.match(sitemap, /<loc>https:\/\/build\.aideploy\.co\/<\/loc>/);
+});
+
 test('executes no third-party code on the published page', async () => {
   const [html, build] = await Promise.all([read('web/index.html'), read('web/build.mjs')]);
 
@@ -277,7 +310,7 @@ test('ships only the explicit static-site allowlist', async () => {
   for (const font of ['inter-latin-400-normal', 'Inter.LICENSE']) {
     assert.ok(build.includes(font), `build.mjs does not ship ${font}`);
   }
-  for (const file of ['index.html', 'styles.css', 'app.js', 'command.js', 'favicon.svg']) {
+  for (const file of ['CNAME', 'index.html', 'styles.css', 'app.js', 'command.js', 'favicon.svg']) {
     assert.match(build, new RegExp(`'${file.replace('.', '\\.')}[^']*'`));
   }
   assert.doesNotMatch(build, /cp\(root, output/);
