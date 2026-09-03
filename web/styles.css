@@ -189,13 +189,16 @@ svg {
   width: 100%;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(3, 6, 17, 0.8);
+  -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
 }
 
 .site-header-inner {
   max-width: var(--shell);
   margin: 0 auto;
-  padding: 12px 16px;
+  /* Same gutter as `main` and `.site-footer`, so the brand shares their left
+     edge instead of hanging 24px outside the page grid. */
+  padding: 12px 40px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -239,6 +242,9 @@ svg {
   min-height: 44px;
   align-items: center;
   justify-content: center;
+  /* inline-flex drops the whitespace text node between a label and its
+     trailing arrow span, so the gap has to be declared. */
+  gap: 0.35em;
   padding: 6px 12px;
   border-radius: var(--radius-pill);
   color: var(--body);
@@ -251,15 +257,19 @@ svg {
   color: var(--ink);
 }
 
-.nav-cta {
-  padding-inline: 18px !important;
+/* Scoped to out-rank `.site-header nav a` on specificity. The looser
+   `.nav-cta` selector lost to it and needed !important on every declaration. */
+.site-header nav a.nav-cta {
+  padding-inline: 18px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--line-strong);
   background: linear-gradient(rgba(8, 18, 38, 0.88), rgba(11, 16, 32, 0.82));
-  color: var(--ink) !important;
+  color: var(--ink);
 }
 
-.nav-cta:hover {
+.site-header nav a.nav-cta:hover {
+  /* Lifts the gradient rather than inheriting the flat shared nav hover. */
+  background: linear-gradient(rgba(12, 26, 52, 0.92), rgba(15, 22, 44, 0.88));
   border-color: rgba(125, 211, 252, 0.45);
 }
 
@@ -629,6 +639,7 @@ h3 {
   display: inline-flex;
   min-height: 44px;
   align-items: center;
+  gap: 0.35em;
   font-size: 0.85rem;
   font-weight: 500;
 }
@@ -1031,6 +1042,7 @@ h3 {
   min-width: 44px;
   min-height: 44px;
   align-items: center;
+  gap: 0.35em;
   justify-content: center;
   font-size: 0.85rem;
   font-weight: 500;
@@ -1176,7 +1188,8 @@ h3 {
   .site-header-inner {
     flex-wrap: wrap;
     gap: 4px;
-    padding: 8px 16px 10px;
+    /* Matches `main`'s mobile gutter for the same reason as the desktop rule. */
+    padding: 8px 22px 10px;
   }
 
   .site-header nav {
@@ -1191,8 +1204,8 @@ h3 {
     font-size: 0.82rem;
   }
 
-  .nav-cta {
-    padding-inline: 10px !important;
+  .site-header nav a.nav-cta {
+    padding-inline: 10px;
   }
 
   main {
@@ -1214,6 +1227,7 @@ h3 {
     display: inline-flex;
     min-height: 44px;
     align-items: center;
+    gap: 0.35em;
     grid-column: 2;
     justify-self: start;
   }
@@ -1236,6 +1250,19 @@ h3 {
 
   .hosted-cta > a {
     justify-content: center;
+  }
+}
+
+/* Below ~400px three equal pills cannot hold their labels, and the fixed grid
+   breaks "Hosted wizard" across two lines inside its own cell. Fall back to a
+   wrapping row so a label moves down whole instead of splitting. */
+@media (max-width: 400px) {
+  .site-header nav {
+    display: flex;
+    flex-wrap: wrap;
+    /* Grouped, not spread: space-between strands a wrapped row's links at
+       opposite edges with a dead gap between them. */
+    justify-content: flex-start;
   }
 }
 
