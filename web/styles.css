@@ -183,18 +183,31 @@ svg {
 /* ---------- header ---------- */
 
 .site-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  width: 100%;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(3, 6, 17, 0.8);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+}
+
+.site-header-inner {
   max-width: var(--shell);
   margin: 0 auto;
-  padding: 26px 40px;
+  /* Same gutter as `main` and `.site-footer`, so the brand shares their left
+     edge instead of hanging 24px outside the page grid. */
+  padding: 12px 40px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  flex-wrap: wrap;
+  gap: 16px;
 }
 
 .brand {
   display: inline-flex;
+  min-height: 44px;
   align-items: center;
   gap: 10px;
   color: var(--ink);
@@ -221,29 +234,42 @@ svg {
 .site-header nav {
   display: flex;
   align-items: center;
-  gap: 26px;
-  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .site-header nav a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  /* inline-flex drops the whitespace text node between a label and its
+     trailing arrow span, so the gap has to be declared. */
+  gap: 0.35em;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
   color: var(--body);
   text-decoration: none;
   font-size: 0.95rem;
 }
 
 .site-header nav a:hover {
+  background: rgba(255, 255, 255, 0.08);
   color: var(--ink);
 }
 
-.nav-cta {
-  padding: 9px 18px;
+/* Scoped to out-rank `.site-header nav a` on specificity. The looser
+   `.nav-cta` selector lost to it and needed !important on every declaration. */
+.site-header nav a.nav-cta {
+  padding-inline: 18px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--line-strong);
   background: linear-gradient(rgba(8, 18, 38, 0.88), rgba(11, 16, 32, 0.82));
-  color: var(--ink) !important;
+  color: var(--ink);
 }
 
-.nav-cta:hover {
+.site-header nav a.nav-cta:hover {
+  /* Lifts the gradient rather than inheriting the flat shared nav hover. */
+  background: linear-gradient(rgba(12, 26, 52, 0.92), rgba(15, 22, 44, 0.88));
   border-color: rgba(125, 211, 252, 0.45);
 }
 
@@ -375,6 +401,7 @@ h3 {
 
 .step-rail a {
   display: inline-flex;
+  min-height: 44px;
   align-items: center;
   gap: 8px;
   padding: 8px 14px;
@@ -609,6 +636,10 @@ h3 {
 }
 
 .hosted-options a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 0.35em;
   font-size: 0.85rem;
   font-weight: 500;
 }
@@ -891,6 +922,7 @@ h3 {
 
 .future-command summary {
   display: flex;
+  min-height: 44px;
   align-items: center;
   gap: 10px;
   cursor: pointer;
@@ -1006,6 +1038,12 @@ h3 {
 }
 
 .link-cluster a {
+  display: inline-flex;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  gap: 0.35em;
+  justify-content: center;
   font-size: 0.85rem;
   font-weight: 500;
   white-space: nowrap;
@@ -1095,6 +1133,11 @@ h3 {
 }
 
 .site-footer nav a {
+  display: inline-flex;
+  min-width: 44px;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
   color: var(--muted);
   text-decoration: none;
   font-size: 0.88rem;
@@ -1138,9 +1181,31 @@ h3 {
 }
 
 @media (max-width: 720px) {
-  .site-header,
   .site-footer {
     padding-inline: 22px;
+  }
+
+  .site-header-inner {
+    flex-wrap: wrap;
+    gap: 4px;
+    /* Matches `main`'s mobile gutter for the same reason as the desktop rule. */
+    padding: 8px 22px 10px;
+  }
+
+  .site-header nav {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.75fr) minmax(0, 1.2fr);
+    width: 100%;
+    gap: 4px;
+  }
+
+  .site-header nav a {
+    padding-inline: 8px;
+    font-size: 0.82rem;
+  }
+
+  .site-header nav a.nav-cta {
+    padding-inline: 10px;
   }
 
   main {
@@ -1156,6 +1221,15 @@ h3 {
   .readiness-list > li {
     grid-template-columns: auto minmax(0, 1fr);
     padding: 18px 20px;
+  }
+
+  .readiness-list > li > a {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    gap: 0.35em;
+    grid-column: 2;
+    justify-self: start;
   }
 
   .link-cluster {
@@ -1176,6 +1250,19 @@ h3 {
 
   .hosted-cta > a {
     justify-content: center;
+  }
+}
+
+/* Below ~400px three equal pills cannot hold their labels, and the fixed grid
+   breaks "Hosted wizard" across two lines inside its own cell. Fall back to a
+   wrapping row so a label moves down whole instead of splitting. */
+@media (max-width: 400px) {
+  .site-header nav {
+    display: flex;
+    flex-wrap: wrap;
+    /* Grouped, not spread: space-between strands a wrapped row's links at
+       opposite edges with a dead gap between them. */
+    justify-content: flex-start;
   }
 }
 
