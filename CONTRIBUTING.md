@@ -33,11 +33,35 @@ SMOKE_UP=1 ./scripts/runtime-smoke.sh hermes
 # From the repository root:
 npm --prefix web test
 npm --prefix web run build
+python3 -m unittest scripts/publication-guard/test_scan.py -v
+python3 scripts/publication-guard/scan.py --repo . --all-refs
 ```
 
 CI on pull requests is credential-free by design: lint, unit tests,
 `tofu validate`, an OpenClaw boot smoke, and an exact-source Hermes gateway
 boot/health smoke. Live deploys run only on trusted triggers from maintainers.
+
+Before your first push, install the repository's pre-push publication check:
+
+```bash
+./scripts/publication-guard/install-hook.sh
+```
+
+The installer is repeatable and refuses to overwrite an unrelated hook. The
+local hook prevents unsafe commits from being pushed. CI independently scans
+the pull request's Git objects after a push, including intermediate commits,
+using the policy and scanner from the protected base branch. It never checks
+out or executes pull-request code, and findings never print matched content.
+Organizations can add a second local boundary scanner by setting
+`aideploy.privateBoundaryCommand` to an absolute executable path. The hook
+invokes that file directly with repository and commit-boundary arguments; it
+never evaluates a shell command from Git configuration.
+
+The public repository accepts only its documented top-level source and docs
+directories. Local state, credentials, private or hosted source trees,
+archives, symlinks, and submodules are rejected. If a protected guardrail file
+must change, a maintainer must review the change and apply the
+`publication-guard-break-glass` label; the trusted-base scan still runs.
 
 ## Reporting bugs
 

@@ -12,7 +12,20 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  publication-boundary:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: scan every fetched public ref before publication
+        run: python3 scripts/publication-guard/scan.py --repo . --all-refs
+
   images:
+    needs: publication-boundary
     runs-on: ubuntu-latest
     environment: release
     permissions:

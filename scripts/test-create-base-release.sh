@@ -5,12 +5,12 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/aideploy-base-test.XXXXXX")"
 trap 'rm -rf -- "$tmp"' EXIT
 repo="$tmp/repo"
-mkdir -p "$repo/subdir" "$tmp/out-a" "$tmp/out-b"
+mkdir -p "$repo/stack" "$tmp/out-a" "$tmp/out-b"
 git -C "$repo" init -q
 git -C "$repo" config user.name test
 git -C "$repo" config user.email test@example.invalid
 printf '1.2.3-beta.4\n' >"$repo/VERSION"
-printf 'public base\n' >"$repo/subdir/runtime.txt"
+printf 'public base\n' >"$repo/stack/runtime.txt"
 git -C "$repo" add -A
 GIT_AUTHOR_DATE=2026-01-02T03:04:05Z GIT_COMMITTER_DATE=2026-01-02T03:04:05Z \
   git -C "$repo" commit -qm fixture
@@ -43,7 +43,7 @@ jq -e \
    .runtimeImages.openclaw == $digest' \
   "$tmp/out-a/$stem.manifest.json" >/dev/null
 tar -tzf "$tmp/out-a/$stem.tgz" | grep -Fxq "$stem/VERSION"
-tar -tzf "$tmp/out-a/$stem.tgz" | grep -Fxq "$stem/subdir/runtime.txt"
+tar -tzf "$tmp/out-a/$stem.tgz" | grep -Fxq "$stem/stack/runtime.txt"
 
 printf 'corruption' >>"$tmp/out-a/$stem.tgz"
 if (cd "$tmp/out-a" && shasum -a 256 -c "$stem.sha256") >/dev/null 2>&1; then

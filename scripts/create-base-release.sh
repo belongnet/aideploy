@@ -31,6 +31,7 @@ done
 command -v git >/dev/null 2>&1 || { echo "git is required" >&2; exit 2; }
 command -v gzip >/dev/null 2>&1 || { echo "gzip is required" >&2; exit 2; }
 command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 2; }
+command -v python3 >/dev/null 2>&1 || { echo "python3 is required" >&2; exit 2; }
 
 repo="$(cd "$repo" && pwd -P)"
 mkdir -p "$out"
@@ -57,6 +58,11 @@ if [ "$tag" != "v$version" ]; then
   echo "release tag $tag does not match VERSION $version" >&2
   exit 1
 fi
+
+# Use the repository-owned publication policy before any archive bytes exist.
+# Full ancestry catches a credential committed and deleted before the tag.
+python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/publication-guard/scan.py" \
+  --repo "$repo" --reachable "$tag"
 
 stem="aideploy-base-${tag}"
 archive="$out/${stem}.tgz"

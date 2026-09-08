@@ -2,6 +2,15 @@
 .env
 .env.*
 !.env.example
+.aideploy/
+.context/
+credentials.json
+service-account*.json
+service_account*.json
+*.key
+*.pem
+*.p12
+*.pfx
 *.log
 *.tfstate
 *.tfstate.*

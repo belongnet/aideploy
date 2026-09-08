@@ -1,0 +1,71 @@
+# This workflow is loaded from the protected base commit. It checks out and
+# executes only base-owned guard code, then reads candidate Git objects as data.
+# Fork pull requests receive no repository secrets.
+name: publication-boundary
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions: {}
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: check out the exact protected base
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: enumerate every changed path
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EXPECTED_CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          BREAK_GLASS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'publication-guard-break-glass') }}
+        run: |
+          set -Eeuo pipefail
+          files_json="$RUNNER_TEMP/publication-guard-pr-files.json"
+          gh api --paginate --slurp "repos/$GH_REPO/pulls/$PR_NUMBER/files" >"$files_json"
+          observed="$(python3 scripts/publication-guard/classify_pr_files.py count <"$files_json")"
+          if [ "$observed" -ne "$EXPECTED_CHANGED_FILES" ]; then
+            echo "::error::PR file enumeration was truncated; publication policy fails closed."
+            exit 1
+          fi
+          policy_changed="$(python3 scripts/publication-guard/classify_pr_files.py policy <"$files_json")"
+          if [ "$policy_changed" -eq 1 ] && [ "$BREAK_GLASS_LABEL" != true ]; then
+            echo "::error::Publication guard files are base-owned. A maintainer must apply publication-guard-break-glass."
+            exit 1
+          fi
+          if [ "$policy_changed" -eq 1 ]; then
+            echo "Maintainer-controlled break-glass approval received; the base-owned scan still runs."
+          fi
+
+      - name: fetch candidate objects without checking out pull-request code
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]
+          git fetch --no-tags --force origin \
+            "+refs/pull/$PR_NUMBER/head:refs/aideploy-publication/head"
+          fetched="$(git rev-parse 'refs/aideploy-publication/head^{commit}')"
+          test "$fetched" = "$HEAD_SHA"
+
+      - name: scan candidate Git objects with protected-base rules
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 scripts/publication-guard/scan.py \
+            --repo . --base "$BASE_SHA" --head "$HEAD_SHA"
