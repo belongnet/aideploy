@@ -4,6 +4,32 @@ All notable public releases are documented here. GitHub Releases carry the
 commit-by-commit notes, signed hosted-build source assets, and the exact npm
 tarball when npm publishing is enabled.
 
+## [0.4.2-beta.8] - 2026-09-10
+
+### Added
+
+- Public contributions now pass a deny-by-default publication guard that scans
+  candidate commits, reachable history, commit metadata, file types, archive
+  signatures, and credential patterns without printing detected secrets.
+- Contributors can install the same guard locally as a content-addressed Git
+  hook, so reviewing an untrusted branch cannot replace the code the hook runs.
+
+### Changed
+
+- Changes to workflows or publication controls now require an independent
+  maintainer to approve the exact current pull-request head. Every workflow and
+  guard control is covered by the protected-path and CODEOWNERS contracts.
+- Release and continuous-integration jobs run the trusted publication scan
+  before building or publishing public artifacts.
+
+### Fixed
+
+- Updated both reference dashboard dependency locks to patched releases and
+  removed the stale URI override, restoring zero high-severity production audit
+  findings.
+- Made deterministic base-release scripts insensitive to a caller's `CDPATH`
+  while preserving byte-for-byte archive and checksum verification.
+
 ## [0.4.2-beta.7] - 2026-08-28
 
 ### Changed
