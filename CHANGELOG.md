@@ -4,6 +4,17 @@ All notable public releases are documented here. GitHub Releases carry the
 commit-by-commit notes, signed hosted-build source assets, and the exact npm
 tarball when npm publishing is enabled.
 
+## [0.4.2-beta.9] - 2026-09-10
+
+### Fixed
+
+- Hermes boot verification now survives GitHub asset-CDN throttling by using
+  independently checksum-pinned API representations of the same source commit
+  as a fallback. Trusted `main` jobs use a read-only repository token, pull
+  requests remain credential-free, and unverified bytes are never executed.
+- Corrected the previous release notes to reflect the repository's
+  solo-maintainer approval policy.
+
 ## [0.4.2-beta.8] - 2026-09-10
 
 ### Added
@@ -16,9 +27,9 @@ tarball when npm publishing is enabled.
 
 ### Changed
 
-- Changes to workflows or publication controls now require an independent
-  maintainer to approve the exact current pull-request head. Every workflow and
-  guard control is covered by the protected-path and CODEOWNERS contracts.
+- Changes to workflows or publication controls need no human approval or
+  break-glass label in this solo-maintainer repository. Base-owned publication
+  scans and the remaining branch protections continue to run automatically.
 - Release and continuous-integration jobs run the trusted publication scan
   before building or publishing public artifacts.
 
