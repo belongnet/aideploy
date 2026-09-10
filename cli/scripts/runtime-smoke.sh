@@ -88,14 +88,52 @@ cleanup_openclaw_smoke() {
   return "$cleanup_status"
 }
 
-download_file() {
-  local url="$1"
-  local destination="$2"
-  curl --fail --silent --show-error --location \
+verify_checksum() {
+  local label="$1"
+  local path="$2"
+  local expected="$3"
+  local actual
+  actual="$(sha256_file "$path")"
+  [ "$actual" = "$expected" ] || {
+    echo "$label checksum mismatch: expected $expected, got $actual" >&2
+    return 1
+  }
+}
+
+download_verified_file() {
+  local label="$1"
+  local url="$2"
+  local destination="$3"
+  local expected="$4"
+  local fallback_url="${5:-}"
+  local fallback_expected="${6:-}"
+  local fallback_accept="${7:-application/vnd.github+json}"
+  if curl --fail --silent --show-error --location \
     --connect-timeout 10 --max-time 300 \
     --continue-at - \
     --retry 4 --retry-delay 2 --retry-all-errors \
-    "$url" -o "$destination"
+    "$url" -o "$destination"; then
+    if verify_checksum "$label" "$destination" "$expected"; then
+      return 0
+    fi
+  fi
+
+  [ -n "$fallback_url" ] && [ -n "$fallback_expected" ] || return 1
+  echo "Primary runtime asset download failed; retrying through GitHub API" >&2
+  # A failed resumed download may leave an error body in the destination.
+  # Start the independently checksum-verified API mirror from byte zero.
+  : >"$destination"
+  local -a fallback_headers=(--header "Accept: $fallback_accept")
+  if [ -n "${AIDEPLOY_GITHUB_TOKEN:-}" ]; then
+    fallback_headers+=(--header "Authorization: Bearer $AIDEPLOY_GITHUB_TOKEN")
+  fi
+  curl --fail --silent --show-error --location \
+    "${fallback_headers[@]}" \
+    --connect-timeout 10 --max-time 300 \
+    --continue-at - \
+    --retry 4 --retry-delay 2 --retry-all-errors \
+    "$fallback_url" -o "$destination"
+  verify_checksum "$label fallback" "$destination" "$fallback_expected"
 }
 
 smoke_openclaw() {
@@ -178,12 +216,13 @@ JSONEOF
 smoke_hermes() {
   local root="$RUNTIME_ROOT/hermes"
   local manifest="$root/manifest.json"
-  local url expected image source_commit source_repo source_url source_expected
+  local url expected image source_fallback_expected source_commit source_repo source_url source_expected
   jq -e '
     (.releaseTag | type == "string" and length > 0) and
     (.sourceRepository == "https://github.com/NousResearch/hermes-agent.git") and
     (.sourceCommit | test("^[a-f0-9]{40}$")) and
-    (.sourceArchiveSha256 | test("^[a-f0-9]{64}$"))
+    (.sourceArchiveSha256 | test("^[a-f0-9]{64}$")) and
+    (.sourceFallbackArchiveSha256 | test("^[a-f0-9]{64}$"))
   ' "$manifest" >/dev/null
   url="$(jq -er '.installUrl' "$manifest")"
   expected="$(jq -er '.installSha256' "$manifest")"
@@ -192,6 +231,7 @@ smoke_hermes() {
   source_repo="$(jq -er '.sourceRepository' "$manifest")"
   source_url="$(jq -er '.sourceArchiveUrl' "$manifest")"
   source_expected="$(jq -er '.sourceArchiveSha256' "$manifest")"
+  source_fallback_expected="$(jq -er '.sourceFallbackArchiveSha256' "$manifest")"
   [ "$source_repo" = "https://github.com/NousResearch/hermes-agent.git" ]
   [ "$url" = "https://raw.githubusercontent.com/NousResearch/hermes-agent/$source_commit/scripts/install.sh" ]
   [ "$source_url" = "https://codeload.github.com/NousResearch/hermes-agent/tar.gz/$source_commit" ]
@@ -208,7 +248,7 @@ smoke_hermes() {
   echo "Hermes runtime contract: PASS"
 
   [ "${SMOKE_UP:-0}" = "1" ] || return 0
-  local actual installer_path source_actual source_archive
+  local installer_path source_archive
   trap cleanup_hermes_smoke EXIT
   if [ -n "${HERMES_SMOKE_INSTALLER_PATH:-}" ]; then
     [ -f "$HERMES_SMOKE_INSTALLER_PATH" ] || {
@@ -216,16 +256,19 @@ smoke_hermes() {
       return 1
     }
     installer_path="$HERMES_SMOKE_INSTALLER_PATH"
+    verify_checksum "Hermes installer" "$installer_path" "$expected"
   else
     HERMES_SMOKE_INSTALLER="$(mktemp "${TMPDIR:-/tmp}/aideploy-hermes-smoke.XXXXXX")"
-    download_file "$url" "$HERMES_SMOKE_INSTALLER"
+    download_verified_file \
+      "Hermes installer" \
+      "$url" \
+      "$HERMES_SMOKE_INSTALLER" \
+      "$expected" \
+      "https://api.github.com/repos/NousResearch/hermes-agent/contents/scripts/install.sh?ref=$source_commit" \
+      "$expected" \
+      "application/vnd.github.raw+json"
     installer_path="$HERMES_SMOKE_INSTALLER"
   fi
-  actual="$(sha256_file "$installer_path")"
-  [ "$actual" = "$expected" ] || {
-    echo "Hermes installer checksum mismatch: expected $expected, got $actual" >&2
-    return 1
-  }
   bash -n "$installer_path"
   echo "Hermes pinned-installer smoke: PASS"
 
@@ -235,16 +278,18 @@ smoke_hermes() {
       return 1
     }
     source_archive="$HERMES_SMOKE_SOURCE_ARCHIVE"
+    verify_checksum "Hermes source archive" "$source_archive" "$source_expected"
   else
     HERMES_SMOKE_ARCHIVE="$(mktemp "${TMPDIR:-/tmp}/aideploy-hermes-source.XXXXXX")"
-    download_file "$source_url" "$HERMES_SMOKE_ARCHIVE"
+    download_verified_file \
+      "Hermes source archive" \
+      "$source_url" \
+      "$HERMES_SMOKE_ARCHIVE" \
+      "$source_expected" \
+      "https://api.github.com/repos/NousResearch/hermes-agent/tarball/$source_commit" \
+      "$source_fallback_expected"
     source_archive="$HERMES_SMOKE_ARCHIVE"
   fi
-  source_actual="$(sha256_file "$source_archive")"
-  [ "$source_actual" = "$source_expected" ] || {
-    echo "Hermes source checksum mismatch: expected $source_expected, got $source_actual" >&2
-    return 1
-  }
 
   # This image is digest-pinned and contains only the Python runtime. Installing
   # the API-server extra from the exact source archive proves the gateway can

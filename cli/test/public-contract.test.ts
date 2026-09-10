@@ -1,5 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -214,6 +215,7 @@ describe('published deployment contract', () => {
     expect(hermesManifest.installUrl).toContain(`/${hermesManifest.sourceCommit}/`);
     expect(hermesManifest.sourceArchiveUrl).toContain(`/${hermesManifest.sourceCommit}`);
     expect(hermesManifest.sourceArchiveSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(hermesManifest.sourceFallbackArchiveSha256).toMatch(/^[a-f0-9]{64}$/);
     expect(bootstrap).toContain("--branch '\"$source_commit\"'");
     expect(bootstrap).toContain('git -C "$install_dir" fetch --depth 1 origin "$HERMES_SOURCE_COMMIT"');
     expect(bootstrap).toContain('git -C "$install_dir" checkout --detach FETCH_HEAD');
@@ -512,10 +514,21 @@ describe('public workflows', () => {
     expect(release).toMatch(/gh release create/);
   });
 
-  it('runs distinct credential-free runtime smoke paths with boot checks enabled', () => {
+  it('runs runtime smokes without exposing a repository token to pull requests', () => {
     const ci = text(join(publicRoot, '.github/workflows/ci.yml'));
     expect(ci).toContain('./cli/scripts/runtime-smoke.sh ${{ matrix.runtime }}');
     expect(ci).toContain("SMOKE_UP: '1'");
+    const pullRequestSmoke = ci.indexOf(
+      "if: github.event_name == 'pull_request'",
+    );
+    const trustedMainSmoke = ci.indexOf("if: github.event_name == 'push'");
+    const downloadToken = ci.indexOf(
+      'AIDEPLOY_GITHUB_TOKEN: ${{ github.token }}',
+    );
+    expect(pullRequestSmoke).toBeGreaterThan(-1);
+    expect(trustedMainSmoke).toBeGreaterThan(pullRequestSmoke);
+    expect(downloadToken).toBeGreaterThan(trustedMainSmoke);
+    expect(ci.match(/AIDEPLOY_GITHUB_TOKEN/g)).toHaveLength(1);
     const smoke = text(join(cliRoot, 'scripts/runtime-smoke.sh'));
     expect(smoke).toMatch(/openclaw\) smoke_openclaw/);
     expect(smoke).toMatch(/hermes\) smoke_hermes/);
@@ -529,9 +542,132 @@ describe('public workflows', () => {
     expect(smoke).toContain('docker run --rm --user 0:0 --entrypoint sh');
     expect(smoke).toContain("-c 'rm -rf /cleanup/state /cleanup/workspace'");
     expect(smoke).toContain('--continue-at -');
+    expect(smoke).toContain(
+      'Primary runtime asset download failed; retrying through GitHub API',
+    );
+    expect(smoke).toContain('application/vnd.github.raw+json');
+    expect(smoke).toContain(
+      'https://api.github.com/repos/NousResearch/hermes-agent/tarball/$source_commit',
+    );
+    expect(smoke).toContain(': >"$destination"');
+    expect(smoke).toContain('${AIDEPLOY_GITHUB_TOKEN:-}');
+    expect(smoke).toContain(
+      'Authorization: Bearer $AIDEPLOY_GITHUB_TOKEN',
+    );
     expect(smoke).toContain('PIP_NO_CACHE_DIR=1');
     expect(smoke).not.toContain('trap cleanup EXIT');
     expect(smoke).toContain('Hermes gateway boot smoke: PASS');
+  });
+
+  it('accepts only checksum-pinned fallback downloads and resets partial bytes', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'aideploy-runtime-download-'));
+    const fakeCurl = join(fixture, 'curl');
+    const curlLog = join(fixture, 'curl.log');
+    const destination = join(fixture, 'asset');
+    const smoke = text(join(cliRoot, 'scripts/runtime-smoke.sh'));
+    const helpersStart = smoke.indexOf('sha256_file() {');
+    const helpersEnd = smoke.indexOf('\n\nsmoke_openclaw()', helpersStart);
+    expect(helpersStart).toBeGreaterThan(-1);
+    expect(helpersEnd).toBeGreaterThan(helpersStart);
+    const downloadHelpers = smoke.slice(helpersStart, helpersEnd);
+    const sha256 = (value: string) =>
+      createHash('sha256').update(value).digest('hex');
+
+    writeFileSync(fakeCurl, `#!/bin/sh
+output=''
+url=''
+for arg in "$@"; do
+  if [ "$output" = next ]; then output="$arg"; continue; fi
+  if [ "$arg" = -o ]; then output=next; continue; fi
+  case "$arg" in http://*|https://*) url="$arg" ;; esac
+done
+printf '%s\n' "$*" >>"$AIDEPLOY_CURL_LOG"
+case "$url" in
+  *primary-ok*) printf primary >"$output" ;;
+  *primary-fail*) printf partial >"$output"; exit 22 ;;
+  *fallback-ok*) printf fallback >>"$output" ;;
+  *fallback-bad*) printf unverified >>"$output" ;;
+  *) exit 64 ;;
+esac
+`);
+    chmodSync(fakeCurl, 0o755);
+
+    const runDownload = (args: string[], token = '') =>
+      spawnSync(
+        'bash',
+        [
+          '-c',
+          `${downloadHelpers}\ndownload_verified_file "$@"`,
+          'download-test',
+          ...args,
+        ],
+        {
+          cwd: cliRoot,
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            PATH: `${fixture}:${process.env.PATH ?? ''}`,
+            AIDEPLOY_CURL_LOG: curlLog,
+            AIDEPLOY_GITHUB_TOKEN: token,
+          },
+        },
+      );
+
+    try {
+      const primary = runDownload([
+        'runtime asset',
+        'https://primary-ok.test/asset',
+        destination,
+        sha256('primary'),
+        'https://fallback-ok.test/asset',
+        sha256('fallback'),
+      ]);
+      expect(primary.status).toBe(0);
+      expect(text(destination)).toBe('primary');
+      expect(text(curlLog)).not.toContain('Authorization:');
+
+      writeFileSync(curlLog, '');
+      const fallback = runDownload(
+        [
+          'runtime asset',
+          'https://primary-fail.test/asset',
+          destination,
+          sha256('primary'),
+          'https://fallback-ok.test/asset',
+          sha256('fallback'),
+          'application/vnd.github.raw+json',
+        ],
+        'x',
+      );
+      expect(fallback.status).toBe(0);
+      expect(text(destination)).toBe('fallback');
+      expect(fallback.stderr).toContain('retrying through GitHub API');
+      expect(text(curlLog)).toContain('Accept: application/vnd.github.raw+json');
+      expect(text(curlLog)).toContain('Authorization: Bearer x');
+
+      const rejected = runDownload([
+        'runtime asset',
+        'https://primary-fail.test/asset',
+        destination,
+        sha256('primary'),
+        'https://fallback-bad.test/asset',
+        sha256('fallback'),
+      ]);
+      expect(rejected.status).not.toBe(0);
+      expect(rejected.stderr).toContain(
+        'runtime asset fallback checksum mismatch',
+      );
+
+      const noFallback = runDownload([
+        'runtime asset',
+        'https://primary-fail.test/asset',
+        destination,
+        sha256('primary'),
+      ]);
+      expect(noFallback.status).not.toBe(0);
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
   });
 
   it('tests an exact release, rotates providers, and isolates cleanup credentials', () => {
