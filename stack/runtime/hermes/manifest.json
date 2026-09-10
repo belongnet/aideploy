@@ -4,6 +4,7 @@
   "sourceCommit": "bf196a3fc0fd1f79353369e8732051db275c6276",
   "sourceArchiveUrl": "https://codeload.github.com/NousResearch/hermes-agent/tar.gz/bf196a3fc0fd1f79353369e8732051db275c6276",
   "sourceArchiveSha256": "61b39a194364fb99e65496e10ebb1e96b88b26f206b6c49b8c60078d282fc82d",
+  "sourceFallbackArchiveSha256": "bb141b094d90401b5f52b6674d5d054d21f51f9f24f01beca37d104923b5e918",
   "installUrl": "https://raw.githubusercontent.com/NousResearch/hermes-agent/bf196a3fc0fd1f79353369e8732051db275c6276/scripts/install.sh",
   "installSha256": "251c1b97dda5db092d152d34afa315612fe27329e821c5414130f2a7e0c011e2",
   "gstackRepository": "https://github.com/garrytan/gstack.git",

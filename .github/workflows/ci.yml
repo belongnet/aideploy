@@ -1,4 +1,5 @@
-# Credential-free CI. Fork pull requests can reach no secrets.
+# Fork pull request CI is credential-free. Trusted main pushes use only the
+# read-only repository token for GitHub asset-download fallback.
 name: ci
 on:
   pull_request:
@@ -133,9 +134,17 @@ jobs:
         runtime: [openclaw, hermes]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pinned
-      - run: ./cli/scripts/runtime-smoke.sh ${{ matrix.runtime }}
+      - name: Run credential-free pull request smoke
+        if: github.event_name == 'pull_request'
+        run: ./cli/scripts/runtime-smoke.sh ${{ matrix.runtime }}
         env:
           SMOKE_UP: '1'
+      - name: Run trusted main smoke
+        if: github.event_name == 'push'
+        run: ./cli/scripts/runtime-smoke.sh ${{ matrix.runtime }}
+        env:
+          SMOKE_UP: '1'
+          AIDEPLOY_GITHUB_TOKEN: ${{ github.token }}
 
   runtime-contracts:
     runs-on: ubuntu-latest
