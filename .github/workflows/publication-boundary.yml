@@ -4,7 +4,7 @@
 name: publication-boundary
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    types: [opened, synchronize, reopened]
 
 permissions: {}
 
@@ -28,12 +28,6 @@ jobs:
           GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           EXPECTED_CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
-          BREAK_GLASS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'publication-guard-break-glass') }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          EVENT_ACTION: ${{ github.event.action }}
-          EVENT_LABEL: ${{ github.event.label.name || '' }}
-          ACTOR: ${{ github.actor }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           set -Eeuo pipefail
           files_json="$RUNNER_TEMP/publication-guard-pr-files.json"
@@ -44,33 +38,8 @@ jobs:
             exit 1
           fi
           policy_changed="$(python3 scripts/publication-guard/classify_pr_files.py policy <"$files_json")"
-          if [ "$policy_changed" -eq 1 ] && [ "$BREAK_GLASS_LABEL" != true ]; then
-            echo "::error::Publication guard files are base-owned. A maintainer must apply publication-guard-break-glass."
-            exit 1
-          fi
           if [ "$policy_changed" -eq 1 ]; then
-            permission=none
-            if [ "$EVENT_ACTION" = labeled ] && [ "$EVENT_LABEL" = publication-guard-break-glass ]; then
-              permission="$(gh api "repos/$GH_REPO/collaborators/$ACTOR/permission" --jq .permission 2>/dev/null || true)"
-            fi
-            reviews_json="$RUNNER_TEMP/publication-guard-pr-reviews.json"
-            gh api --paginate --slurp "repos/$GH_REPO/pulls/$PR_NUMBER/reviews" >"$reviews_json"
-            independent_review=0
-            while IFS= read -r reviewer; do
-              [ -n "$reviewer" ] || continue
-              reviewer_permission="$(gh api "repos/$GH_REPO/collaborators/$reviewer/permission" --jq .permission 2>/dev/null || true)"
-              if python3 scripts/publication-guard/verify-break-glass-event.py \
-                publication-guard-break-glass "$HEAD_SHA" "$EVENT_ACTION" "$EVENT_LABEL" \
-                "$ACTOR" "$PR_AUTHOR" "$permission" "$reviewer" "$reviewer_permission"; then
-                independent_review=1
-                break
-              fi
-            done < <(jq -r --arg head "$HEAD_SHA" '.[][] | select(.state == "APPROVED" and .commit_id == $head) | .user.login // empty' "$reviews_json")
-            if [ "$independent_review" -ne 1 ]; then
-              echo "::error::Break glass requires a second write-capable maintainer approval on the exact PR head."
-              exit 1
-            fi
-            echo "Maintainer-controlled label and independent review received for the exact PR head; the base-owned scan still runs."
+            echo "Protected publication policy changed; solo-maintainer mode relies on the mandatory trusted-base scan below."
           fi
 
       - name: fetch candidate objects without checking out pull-request code

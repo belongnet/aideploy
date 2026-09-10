@@ -12,7 +12,6 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 SCANNER = HERE / "scan.py"
 CLASSIFIER = HERE / "classify_pr_files.py"
-BREAK_GLASS_VERIFIER = HERE / "verify-break-glass-event.py"
 
 
 class PublicationGuardTest(unittest.TestCase):
@@ -395,54 +394,17 @@ class PublicationGuardTest(unittest.TestCase):
         self.assertIn(".github/CODEOWNERS @jayjideliov", codeowners)
         self.assertIn("scripts/create-base-release.sh @jayjideliov", codeowners)
 
-    def test_break_glass_label_event_is_fresh_independent_and_maintainer_owned(self) -> None:
-        head = "a" * 40
-        accepted = subprocess.run(
-            [
-                "python3", os.fspath(BREAK_GLASS_VERIFIER),
-                "publication-guard-break-glass", head, "labeled",
-                "publication-guard-break-glass", "maintainer", "contributor", "maintain",
-                "reviewer", "write",
-            ],
-            check=False,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        self.assertEqual(accepted.returncode, 0, accepted.stderr)
-
-        rejected_inputs = (
-            ("synchronize", "", "maintainer", "contributor", "write", "reviewer", "write"),
-            ("labeled", "publication-guard-break-glass", "contributor", "contributor", "admin", "reviewer", "write"),
-            ("labeled", "publication-guard-break-glass", "reader", "contributor", "read", "reviewer", "write"),
-            ("labeled", "publication-guard-break-glass", "maintainer", "contributor", "write", "maintainer", "admin"),
-            ("labeled", "publication-guard-break-glass", "maintainer", "contributor", "write", "reviewer", "read"),
-        )
-        for action, label, actor, author, permission, reviewer, reviewer_permission in rejected_inputs:
-            rejected = subprocess.run(
-                [
-                    "python3", os.fspath(BREAK_GLASS_VERIFIER),
-                    "publication-guard-break-glass", head, action,
-                    label, actor, author, permission, reviewer, reviewer_permission,
-                ],
-                check=False,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            self.assertEqual(rejected.returncode, 1, rejected.stderr)
-
-    def test_workflow_requires_the_fresh_break_glass_event_contract(self) -> None:
+    def test_workflow_runs_the_trusted_base_scan_without_a_human_gate(self) -> None:
         workflow = (HERE.parents[1] / ".github/workflows/publication-boundary.yml").read_text(
             encoding="utf-8"
         )
         self.assertIn("HEAD_SHA: ${{ github.event.pull_request.head.sha }}", workflow)
-        self.assertIn("EVENT_ACTION: ${{ github.event.action }}", workflow)
-        self.assertIn("ACTOR: ${{ github.actor }}", workflow)
-        self.assertIn('repos/$GH_REPO/collaborators/$ACTOR/permission', workflow)
-        self.assertIn('repos/$GH_REPO/pulls/$PR_NUMBER/reviews', workflow)
-        self.assertIn('select(.state == "APPROVED" and .commit_id == $head)', workflow)
-        self.assertIn("verify-break-glass-event.py", workflow)
+        self.assertIn("ref: ${{ github.event.pull_request.base.sha }}", workflow)
+        self.assertIn('gh api --paginate --slurp "repos/$GH_REPO/pulls/$PR_NUMBER/files"', workflow)
+        self.assertIn("scripts/publication-guard/classify_pr_files.py policy", workflow)
+        self.assertIn("scripts/publication-guard/scan.py", workflow)
+        self.assertNotIn("break-glass", workflow)
+        self.assertNotIn("/reviews", workflow)
 
     def test_pre_push_invokes_optional_boundary_as_direct_argv(self) -> None:
         self.write("scripts/publication-guard/scan.py", SCANNER.read_bytes())
