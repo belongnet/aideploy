@@ -284,6 +284,9 @@ the selected customer cloud.
 - Every cloud resource has generic and deploy-specific tags, so `doctor` can
   find orphaned infrastructure even when local state is damaged.
 - CI is credential-free for forks and pins every GitHub Action by commit SHA.
+- Pull requests are scanned by publication-guard code from the protected base
+  before contributor code is checked out or executed. The same guard scans all
+  fetched public history again before release artifacts are built.
 - Public releases include deterministic source archives, manifests, SHA-256
   values, and keyless Sigstore bundles.
 
@@ -327,6 +330,7 @@ Report vulnerabilities privately through GitHub or
 | [`terraform/`](./terraform) | Provider reference modules and contracts |
 | [`contracts/`](./contracts) | Runtime update and compatibility contracts |
 | [`docs/`](./docs) | Self-hosting, backups, upgrades, and project provenance |
+| [`scripts/publication-guard/`](./scripts/publication-guard) | Public-history, path, archive, and credential publication checks |
 | [`stack/`](./stack) | Deprecated Python/Compose reference architecture, not the live CLI path |
 
 ## Project status and history

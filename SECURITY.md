@@ -26,6 +26,14 @@ a short embargo while the hosted fleet is patched before details go public.
 
 ## Supply-chain verification
 
+Pull requests are inspected by scanner code and policy loaded from the exact
+protected base commit before contributor code is checked out or executed. The
+guard scans introduced commits and the final tree for disallowed paths and Git
+objects, archive content, private-source markers, and credential patterns while
+redacting matched content from its findings. Release jobs scan all fetched
+public refs again before building artifacts. See [CONTRIBUTING.md](./CONTRIBUTING.md)
+for the local pre-push check and the protected-policy change process.
+
 Release images are cosign-signed with GitHub OIDC provenance; the CLI
 verifies its OpenTofu download against a pinned SHA256 and fails closed.
 Verification commands are in the README.

@@ -1,0 +1,175 @@
+{
+  "schema_version": 1,
+  "allowed_top_level": [
+    ".github",
+    ".gitignore",
+    "CHANGELOG.md",
+    "CODE_OF_CONDUCT.md",
+    "CONTRIBUTING.md",
+    "LICENSE",
+    "NOTICE",
+    "README.md",
+    "SECURITY.md",
+    "VERSION",
+    "cli",
+    "contracts",
+    "docs",
+    "scripts",
+    "stack",
+    "terraform",
+    "web"
+  ],
+  "forbidden_path_segments": [
+    ".aideploy",
+    ".aws",
+    ".claude",
+    ".codex",
+    ".context",
+    ".gstack",
+    ".next",
+    ".ssh",
+    ".terraform",
+    "__pycache__",
+    "coverage",
+    "dist",
+    "hosted",
+    "infrastructure",
+    "internal",
+    "managed",
+    "node_modules",
+    "overlay",
+    "overlays",
+    "private",
+    "provisioner",
+    "wizard"
+  ],
+  "forbidden_basenames": [
+    ".env",
+    "credentials.json",
+    "id_ed25519",
+    "id_rsa",
+    "service-account.json",
+    "service_account.json"
+  ],
+  "forbidden_suffixes": [
+    ".jks",
+    ".key",
+    ".keystore",
+    ".p12",
+    ".pem",
+    ".pfx",
+    ".tfstate"
+  ],
+  "archive_suffixes": [
+    ".7z",
+    ".a",
+    ".ar",
+    ".bz2",
+    ".cab",
+    ".deb",
+    ".dmg",
+    ".gz",
+    ".iso",
+    ".jar",
+    ".lha",
+    ".lzh",
+    ".lz",
+    ".lz4",
+    ".lzip",
+    ".rar",
+    ".tar",
+    ".tgz",
+    ".xz",
+    ".z",
+    ".zip",
+    ".zst",
+    ".zstd"
+  ],
+  "max_blob_bytes": 5242880,
+  "content_patterns": [
+    {
+      "id": "private-source-marker",
+      "regex": "(?im)^[ \\t]*(?:[#;/]{1,3}|/\\*+|\\*)?[ \\t]*(?:PRIVATE|INTERNAL|CONFIDENTIAL)[ _-]+SOURCE[ \\t]*:[ \\t]*(?:DO NOT PUBLISH|NOT FOR PUBLIC RELEASE)\\b"
+    },
+    {
+      "id": "private-visibility-marker",
+      "regex": "(?im)^[ \\t]*(?:PUBLICATION_)?VISIBILITY[ \\t]*[:=][ \\t]*[\\\"']PRIVATE[\\\"']"
+    }
+  ],
+  "credential_patterns": [
+    {
+      "id": "credential-private-key",
+      "regex": "-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----"
+    },
+    {
+      "id": "credential-aws-access-key",
+      "regex": "\\b(?:AKIA|ASIA)[A-Z0-9]{16}\\b"
+    },
+    {
+      "id": "credential-github-token",
+      "regex": "\\b(?:gh[pousr]_[A-Za-z0-9]{36,255}|github_pat_[A-Za-z0-9_]{60,255})\\b"
+    },
+    {
+      "id": "credential-gitlab-token",
+      "regex": "\\bglpat-[A-Za-z0-9_-]{20,}\\b"
+    },
+    {
+      "id": "credential-slack-token",
+      "regex": "\\bxox[baprs]-[A-Za-z0-9-]{20,}\\b"
+    },
+    {
+      "id": "credential-tailscale-api-key",
+      "regex": "\\btskey-(?:api|auth|client)-[A-Za-z0-9_-]{20,}\\b"
+    },
+    {
+      "id": "credential-sk-token",
+      "regex": "\\bsk-(?:ant-|proj-|svcacct-)?[A-Za-z0-9_-]{32,}\\b"
+    },
+    {
+      "id": "credential-google-api-key",
+      "regex": "\\bAIza[A-Za-z0-9_-]{30,}\\b"
+    },
+    {
+      "id": "credential-digitalocean-token",
+      "regex": "\\bdop_v1_[A-Fa-f0-9]{64}\\b"
+    }
+  ],
+  "exact_blob_allowlist": [
+    {
+      "rule_id": "credential-private-key",
+      "path": "stack/agent/tests/test_memory.py",
+      "blob_oid": "2b771d1e8f81b2ef90039cabbb1f95cd8353d82a"
+    },
+    {
+      "rule_id": "credential-private-key",
+      "path": "stack/agent/tests/test_memory.py",
+      "blob_oid": "6c29cb3e0afbd5187cf04ea4c7428e61d9ac0eba"
+    },
+    {
+      "rule_id": "credential-aws-access-key",
+      "path": "stack/dashboard/src/app/dashboard-api/secrets/configure/route.ts",
+      "blob_oid": "11b0330900b30a5cb35852905b1fa6307a4e982b"
+    },
+    {
+      "rule_id": "credential-aws-access-key",
+      "path": "stack/dashboard/src/app/dashboard-api/secrets/configure/route.ts",
+      "blob_oid": "77584dfa1b1182aab0f8aba3c66a6a41b8c24f4e"
+    },
+    {
+      "rule_id": "credential-aws-access-key",
+      "path": "stack/dashboard/src/app/dashboard-api/secrets/configure/route.ts",
+      "blob_oid": "7cf9ea54329bccefec3419a3705da1222aee6179"
+    },
+    {
+      "rule_id": "credential-tailscale-api-key",
+      "path": "cli/test/tailscale-helper.test.ts",
+      "blob_oid": "c4855897d2060ebfbc8480f167f6b613fc36eb3c"
+    }
+  ],
+  "protected_policy_paths": [
+    ".github/CODEOWNERS",
+    ".github/workflows/",
+    "scripts/create-base-release.sh",
+    "scripts/publication-guard/"
+  ]
+}

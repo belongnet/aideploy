@@ -18,6 +18,10 @@ jobs:
           fetch-depth: 0
       - run: ./scripts/verify-public-history.sh
       - run: ./scripts/test-public-history-contract.sh
+      - name: scan all fetched public refs and regression fixtures
+        run: |
+          python3 scripts/publication-guard/scan.py --repo . --all-refs
+          python3 -m unittest scripts/publication-guard/test_scan.py -v
 
   cli:
     name: cli (${{ matrix.os }})

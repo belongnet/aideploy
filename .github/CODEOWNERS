@@ -1,0 +1,4 @@
+.github/workflows/ @jayjideliov
+.github/CODEOWNERS @jayjideliov
+scripts/create-base-release.sh @jayjideliov
+scripts/publication-guard/ @jayjideliov
