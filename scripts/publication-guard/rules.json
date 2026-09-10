@@ -62,14 +62,28 @@
   ],
   "archive_suffixes": [
     ".7z",
+    ".a",
+    ".ar",
     ".bz2",
+    ".cab",
+    ".deb",
+    ".dmg",
     ".gz",
+    ".iso",
     ".jar",
+    ".lha",
+    ".lzh",
+    ".lz",
+    ".lz4",
+    ".lzip",
     ".rar",
     ".tar",
     ".tgz",
     ".xz",
-    ".zip"
+    ".z",
+    ".zip",
+    ".zst",
+    ".zstd"
   ],
   "max_blob_bytes": 5242880,
   "content_patterns": [
@@ -153,9 +167,8 @@
     }
   ],
   "protected_policy_paths": [
-    ".github/workflows/ci.yml",
-    ".github/workflows/publication-boundary.yml",
-    ".github/workflows/release.yml",
+    ".github/CODEOWNERS",
+    ".github/workflows/",
     "scripts/create-base-release.sh",
     "scripts/publication-guard/"
   ]

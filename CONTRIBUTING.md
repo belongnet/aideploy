@@ -60,8 +60,11 @@ never evaluates a shell command from Git configuration.
 The public repository accepts only its documented top-level source and docs
 directories. Local state, credentials, private or hosted source trees,
 archives, symlinks, and submodules are rejected. If a protected guardrail file
-must change, a maintainer must review the change and apply the
-`publication-guard-break-glass` label; the trusted-base scan still runs.
+must change, one write-capable maintainer must approve the exact current head
+and a different write-capable maintainer must apply the
+`publication-guard-break-glass` label. Neither may be the pull-request author,
+and branch protection prevents the latest pusher from supplying the required
+approval. The trusted-base scan still runs.
 
 ## Reporting bugs
 

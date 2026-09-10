@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+guard_dir="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 repo="$(git rev-parse --show-toplevel)"
 zero='0000000000000000000000000000000000000000'
 scanned=0
@@ -26,12 +27,12 @@ while read -r local_ref local_sha _ remote_sha || [ -n "${local_ref:-}" ]; do
   fi
   scanned=1
   if [ "$remote_sha" = "$zero" ] || ! git cat-file -e "${remote_sha}^{commit}" 2>/dev/null; then
-    python3 "$repo/scripts/publication-guard/scan.py" --repo "$repo" --reachable "$local_sha"
+    python3 "$guard_dir/scan.py" --repo "$repo" --reachable "$local_sha"
     if [ -n "$private_boundary" ]; then
       "$private_boundary" --repo "$repo" --reachable "$local_sha"
     fi
   else
-    python3 "$repo/scripts/publication-guard/scan.py" --repo "$repo" --base "$remote_sha" --head "$local_sha"
+    python3 "$guard_dir/scan.py" --repo "$repo" --base "$remote_sha" --head "$local_sha"
     if [ -n "$private_boundary" ]; then
       "$private_boundary" --repo "$repo" --base "$remote_sha" --head "$local_sha"
     fi

@@ -57,8 +57,9 @@ class Scanner:
             (item["id"], re.compile(item["regex"])) for item in self.policy["credential_patterns"]
         ]
         self.assignment_pattern = re.compile(
-            r"(?im)\b(?:password|passwd|secret|token|api[_-]?key|access[_-]?key)\b"
-            r"\s*[:=]\s*([\"'])([A-Za-z0-9_+./=-]{24,})\1"
+            r"(?im)(?<![A-Za-z0-9])(?:password|passwd|secret|token|api[_-]?key|"
+            r"access[_-]?key|auth[_-]?token|client[_-]?secret|secret[_-]?access[_-]?key)\b"
+            r"[ \t]*[:=][ \t]*[\"']?([A-Za-z0-9_+./=-]{24,})"
         )
         self.allowlisted_blobs = {
             (item["rule_id"], item["path"], item["blob_oid"])
@@ -93,7 +94,7 @@ class Scanner:
         display_path = safe_field(path)
         assignment = self.assignment_pattern.search(path)
         if any(pattern.search(path) for _, pattern in self.credential_patterns) or (
-            assignment is not None and self.high_entropy(assignment.group(2))
+            assignment is not None and self.high_entropy(assignment.group(1))
         ):
             digest = hashlib.sha256(path.encode("utf-8", "surrogateescape")).hexdigest()[:12]
             display_path = f"<redacted-path:{digest}>"
@@ -103,6 +104,10 @@ class Scanner:
         return (rule_id, path, blob_oid) in self.allowlisted_blobs
 
     def scan_path(self, path: str, commit: str) -> None:
+        # Filenames and directory names are public Git metadata too. Scan them
+        # before structural classification; add() redacts credential-bearing
+        # paths so the finding itself cannot repeat the secret.
+        self.scan_text(path, path, "", commit, include_markers=False)
         parts = path.split("/")
         if not parts or parts[0] not in self.allowed_top:
             self.add("path-outside-public-surface", path, commit)
@@ -118,8 +123,21 @@ class Scanner:
 
     @staticmethod
     def archive_magic(data: bytes) -> bool:
-        prefixes = (b"PK\x03\x04", b"PK\x05\x06", b"\x1f\x8b", b"BZh", b"\xfd7zXZ", b"7z\xbc\xaf\x27\x1c", b"Rar!")
-        return data.startswith(prefixes) or (len(data) > 262 and data[257:262] == b"ustar")
+        prefixes = (
+            b"PK\x03\x04", b"PK\x05\x06", b"\x1f\x8b", b"BZh", b"\xfd7zXZ",
+            b"7z\xbc\xaf\x27\x1c", b"Rar!", b"\x28\xb5\x2f\xfd",
+            b"\x04\x22\x4d\x18", b"\x02\x21\x4c\x18", b"!<arch>\n",
+            b"LZIP", b"\x1f\x9d", b"\x1f\xa0", b"MSCF",
+        )
+        zstd_skippable = (
+            len(data) >= 4
+            and 0x50 <= data[0] <= 0x5F
+            and data[1:4] == b"\x2a\x4d\x18"
+        )
+        tar = len(data) >= 262 and data[257:262] == b"ustar"
+        iso = len(data) >= 32774 and data[32769:32774] == b"CD001"
+        dmg = len(data) >= 512 and data[-512:-508] == b"koly"
+        return data.startswith(prefixes) or zstd_skippable or tar or iso or dmg
 
     @staticmethod
     def line_number(text: str, offset: int) -> int:
@@ -130,7 +148,24 @@ class Scanner:
         if len(value) < 24:
             return False
         lowered = value.casefold()
-        if any(word in lowered for word in ("example", "placeholder", "replace", "dummy", "changeme")):
+        letters_only = re.sub(r"[^a-z]", "", lowered)
+        if any(
+            word in letters_only
+            for word in (
+                "example",
+                "placeholder",
+                "replace",
+                "dummy",
+                "changeme",
+                "yoursupersecret",
+            )
+        ):
+            return False
+        # Unquoted source expressions such as process.env.SERVICE_TOKEN have
+        # identifier-like entropy but are not credential values. Generic
+        # literals must contain a digit; provider-specific patterns above still
+        # catch their exact formats independently of this heuristic.
+        if not re.search(r"[0-9]", value):
             return False
         counts = {char: value.count(char) for char in set(value)}
         entropy = -sum((count / len(value)) * math.log2(count / len(value)) for count in counts.values())
@@ -145,7 +180,7 @@ class Scanner:
                     self.add(rule_id, path, commit, self.line_number(text, match.start()))
 
         for match in self.assignment_pattern.finditer(text):
-            if self.high_entropy(match.group(2)) and not self.allowed_match("credential-assignment", path, blob_oid):
+            if self.high_entropy(match.group(1)) and not self.allowed_match("credential-assignment", path, blob_oid):
                 self.add("credential-assignment", path, commit, self.line_number(text, match.start()))
 
     def scan_blob(self, path: str, blob_oid: str, commit: str) -> None:
@@ -194,6 +229,16 @@ class Scanner:
                 self.scan_entry(commit, item.decode("utf-8", "surrogateescape"))
 
     def scan_commit(self, commit: str) -> None:
+        raw_commit = self.git("cat-file", "commit", commit)
+        assert isinstance(raw_commit, bytes)
+        metadata = raw_commit.partition(b"\n\n")[0]
+        self.scan_text(
+            metadata.decode("utf-8", "replace"),
+            "<commit-metadata>",
+            "",
+            commit,
+            include_markers=False,
+        )
         message = self.git("show", "-s", "--format=%B", commit, text=True)
         assert isinstance(message, str)
         self.scan_text(message, "<commit-message>", "", commit, include_markers=False)

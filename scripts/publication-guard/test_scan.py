@@ -12,6 +12,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 SCANNER = HERE / "scan.py"
 CLASSIFIER = HERE / "classify_pr_files.py"
+BREAK_GLASS_VERIFIER = HERE / "verify-break-glass-event.py"
 
 
 class PublicationGuardTest(unittest.TestCase):
@@ -143,6 +144,17 @@ class PublicationGuardTest(unittest.TestCase):
         self.assertIn("rule=symbolic-link", result.stderr)
         self.assertIn("rule=git-submodule", result.stderr)
 
+    def test_zstd_lz4_and_ar_archives_are_rejected_by_magic(self) -> None:
+        self.write("README.md", "# Public fixture\n")
+        self.write("docs/zstd-disguised.txt", b"\x28\xb5\x2f\xfdprivate")
+        self.write("docs/lz4-disguised.txt", b"\x04\x22\x4d\x18private")
+        self.write("docs/ar-disguised.txt", b"!<arch>\nprivate")
+        head = self.commit("disguised archive fixtures")
+
+        result = self.scan("--rev", head)
+        self.assertEqual(result.returncode, 1)
+        self.assertGreaterEqual(result.stderr.count("rule=archive-content"), 3)
+
     def test_public_surface_and_sensitive_filename_are_enforced(self) -> None:
         self.write("unexpected/source.py", "print('outside')\n")
         self.write("stack/.env.production", "SAFE_FIXTURE=yes\n")
@@ -174,6 +186,64 @@ class PublicationGuardTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("path=<commit-message>", result.stderr)
         self.assertNotIn(planted, result.stdout + result.stderr)
+
+    def test_unquoted_credentials_are_scanned_without_echoing_them(self) -> None:
+        planted = "A7b9C2d4E6f8G1h3J5k7L9m2N4p6R8s1T3v5W7x9"
+        self.write("README.md", "# Public fixture\n")
+        self.write(
+            "stack/config.yml",
+            f"token: {planted}\n//registry.npmjs.org/:_authToken={planted}\n",
+        )
+        head = self.commit("unquoted credential fixtures")
+
+        result = self.scan("--rev", head)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("rule=credential-assignment", result.stderr)
+        self.assertNotIn(planted, result.stdout + result.stderr)
+
+    def test_placeholder_credential_assignments_do_not_trigger_entropy_guard(self) -> None:
+        self.write("README.md", "# Public fixture\n")
+        self.write(
+            "stack/config.yml",
+            "token: replace-with-your-token\n"
+            "empty_token=\n"
+            "A_VERY_LONG_CONFIGURATION_VALUE=65536\n",
+        )
+        head = self.commit("placeholder fixture")
+
+        result = self.scan("--rev", head)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_credentials_in_paths_and_commit_identity_are_scanned_and_redacted(self) -> None:
+        path_token = "ghp_" + "A7b9C2d4E6f8G1h3J5k7L9m2N4p6R8s1T3v5W7x9"
+        identity_token = "glpat-" + "Q7w9E2r4T6y8U1i3O5p7"
+        self.write("README.md", "# Public fixture\n")
+        self.write(f"docs/{path_token}.txt", "harmless\n")
+        self.git("add", "-A")
+        env = os.environ.copy()
+        env.update({
+            "GIT_AUTHOR_NAME": identity_token,
+            "GIT_AUTHOR_EMAIL": "guard@example.invalid",
+            "GIT_COMMITTER_NAME": "Publication Guard Test",
+            "GIT_COMMITTER_EMAIL": "guard@example.invalid",
+        })
+        committed = subprocess.run(
+            ["git", "-C", os.fspath(self.repo), "commit", "-qm", "metadata fixture"],
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+        )
+        self.assertEqual(committed.returncode, 0, committed.stderr)
+        head = self.git("rev-parse", "HEAD")
+
+        result = self.scan("--reachable", head)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("path=<redacted-path:", result.stderr)
+        self.assertIn("path=<commit-metadata>", result.stderr)
+        self.assertNotIn(path_token, result.stdout + result.stderr)
+        self.assertNotIn(identity_token, result.stdout + result.stderr)
 
     def test_annotated_tag_message_is_scanned_and_redacted(self) -> None:
         self.seed_clean()
@@ -229,6 +299,150 @@ class PublicationGuardTest(unittest.TestCase):
             )
             self.assertEqual(installed.returncode, 0, installed.stderr)
         self.assertTrue((linked / ".custom-hooks/pre-push").is_file())
+        hook = linked / ".custom-hooks/pre-push"
+        self.assertNotIn("scripts/publication-guard/pre-push.sh", hook.read_text(encoding="utf-8"))
+        snapshots = list((linked / ".custom-hooks").glob(".aideploy-publication-guard-*"))
+        self.assertEqual(len(snapshots), 1)
+
+        sentinel = Path(self.temp.name) / "branch-hook-executed"
+        branch_hook = linked / "scripts/publication-guard/pre-push.sh"
+        branch_hook.parent.mkdir(parents=True, exist_ok=True)
+        branch_hook.write_text(
+            "#!/usr/bin/env bash\ntouch \"$SENTINEL\"\n",
+            encoding="utf-8",
+        )
+        branch_hook.chmod(0o755)
+        head = self.git("-C", os.fspath(linked), "rev-parse", "HEAD")
+        env = os.environ.copy()
+        env["SENTINEL"] = os.fspath(sentinel)
+        invoked = subprocess.run(
+            [os.fspath(hook), "origin", "https://example.invalid/repo.git"],
+            cwd=linked,
+            input=f"refs/heads/hook-test {head} refs/heads/hook-test {'0' * 40}\n",
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+        )
+        self.assertEqual(invoked.returncode, 0, invoked.stderr)
+        self.assertFalse(sentinel.exists())
+
+    def test_existing_hook_gets_a_snapshot_backed_manual_launcher(self) -> None:
+        head = self.seed_clean()
+        hook = self.repo / ".git/hooks/pre-push"
+        hook.parent.mkdir(parents=True, exist_ok=True)
+        hook.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+        hook.chmod(0o755)
+
+        installed = subprocess.run(
+            [os.fspath(HERE / "install-hook.sh")],
+            cwd=self.repo,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(installed.returncode, 1)
+        self.assertEqual(hook.read_text(encoding="utf-8"), "#!/usr/bin/env bash\nexit 0\n")
+        launcher = self.repo / ".git/hooks/aideploy-publication-guard-pre-push"
+        self.assertTrue(launcher.is_file())
+        self.assertIn(os.fspath(launcher), installed.stderr)
+        self.assertNotIn("scripts/publication-guard/pre-push.sh", launcher.read_text(encoding="utf-8"))
+
+        invoked = subprocess.run(
+            [os.fspath(launcher), "origin", "https://example.invalid/repo.git"],
+            cwd=self.repo,
+            input=f"refs/heads/main {head} refs/heads/main {'0' * 40}\n",
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(invoked.returncode, 0, invoked.stderr)
+
+    def test_every_workflow_path_is_protected_policy(self) -> None:
+        metadata = [[{"filename": ".github/workflows/new-untrusted-job.yml"}]]
+        result = subprocess.run(
+            ["python3", os.fspath(CLASSIFIER), "policy"],
+            input=json.dumps(metadata),
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "1\n")
+
+    def test_every_guard_control_is_protected_and_codeowned(self) -> None:
+        for filename in (
+            ".github/CODEOWNERS",
+            "scripts/create-base-release.sh",
+            "scripts/publication-guard/rules.json",
+        ):
+            result = subprocess.run(
+                ["python3", os.fspath(CLASSIFIER), "policy"],
+                input=json.dumps([[{"filename": filename}]]),
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "1\n", filename)
+
+        codeowners = (HERE.parents[1] / ".github/CODEOWNERS").read_text(encoding="utf-8")
+        self.assertIn(".github/CODEOWNERS @jayjideliov", codeowners)
+        self.assertIn("scripts/create-base-release.sh @jayjideliov", codeowners)
+
+    def test_break_glass_label_event_is_fresh_independent_and_maintainer_owned(self) -> None:
+        head = "a" * 40
+        accepted = subprocess.run(
+            [
+                "python3", os.fspath(BREAK_GLASS_VERIFIER),
+                "publication-guard-break-glass", head, "labeled",
+                "publication-guard-break-glass", "maintainer", "contributor", "maintain",
+                "reviewer", "write",
+            ],
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
+        rejected_inputs = (
+            ("synchronize", "", "maintainer", "contributor", "write", "reviewer", "write"),
+            ("labeled", "publication-guard-break-glass", "contributor", "contributor", "admin", "reviewer", "write"),
+            ("labeled", "publication-guard-break-glass", "reader", "contributor", "read", "reviewer", "write"),
+            ("labeled", "publication-guard-break-glass", "maintainer", "contributor", "write", "maintainer", "admin"),
+            ("labeled", "publication-guard-break-glass", "maintainer", "contributor", "write", "reviewer", "read"),
+        )
+        for action, label, actor, author, permission, reviewer, reviewer_permission in rejected_inputs:
+            rejected = subprocess.run(
+                [
+                    "python3", os.fspath(BREAK_GLASS_VERIFIER),
+                    "publication-guard-break-glass", head, action,
+                    label, actor, author, permission, reviewer, reviewer_permission,
+                ],
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(rejected.returncode, 1, rejected.stderr)
+
+    def test_workflow_requires_the_fresh_break_glass_event_contract(self) -> None:
+        workflow = (HERE.parents[1] / ".github/workflows/publication-boundary.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("HEAD_SHA: ${{ github.event.pull_request.head.sha }}", workflow)
+        self.assertIn("EVENT_ACTION: ${{ github.event.action }}", workflow)
+        self.assertIn("ACTOR: ${{ github.actor }}", workflow)
+        self.assertIn('repos/$GH_REPO/collaborators/$ACTOR/permission', workflow)
+        self.assertIn('repos/$GH_REPO/pulls/$PR_NUMBER/reviews', workflow)
+        self.assertIn('select(.state == "APPROVED" and .commit_id == $head)', workflow)
+        self.assertIn("verify-break-glass-event.py", workflow)
 
     def test_pre_push_invokes_optional_boundary_as_direct_argv(self) -> None:
         self.write("scripts/publication-guard/scan.py", SCANNER.read_bytes())
