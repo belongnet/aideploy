@@ -9,20 +9,30 @@ import { fileURLToPath } from 'node:url';
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (file) => readFile(join(webRoot, file), 'utf8');
 
-test('uses the AI Deploy product shell and keeps the hosted path connected', async () => {
+test('uses the AI Deploy product shell and keeps the web wizard connected', async () => {
   const html = await read('index.html');
 
   assert.match(html, /class="site-header"[\s\S]*class="site-header-inner"/);
   assert.match(html, /aria-label="AI Deploy command builder home"/);
   assert.match(html, /<span>AI Deploy<\/span>/);
 
-  const hostedLinks = [...html.matchAll(/href="(https:\/\/www\.aideploy\.co\/\?[^\"]+)"/g)];
-  assert.ok(hostedLinks.length >= 4, 'hosted wizard is not connected from every key context');
-  for (const [, href] of hostedLinks) {
+  const wizardLinks = [...html.matchAll(/href="(https:\/\/www\.aideploy\.co\/\?[^\"]+)"/g)];
+  assert.ok(wizardLinks.length >= 4, 'web wizard is not connected from every key context');
+  for (const [, href] of wizardLinks) {
     const url = new URL(href.replaceAll('&amp;', '&'));
     assert.equal(url.hostname, 'www.aideploy.co');
     assert.equal(url.searchParams.get('utm_campaign'), 'command_builder');
   }
+});
+
+test('names the web wizard without implying AI Deploy hosts the agent', async () => {
+  const html = await read('index.html');
+
+  // "Hosted wizard" read as "they host my agent". The wizard runs on
+  // aideploy.co, but the agent it deploys still runs in the visitor's own
+  // cloud. The `hosted-*` class names are hyphenated, so they do not match.
+  assert.doesNotMatch(html, /\bhosted (?:wizard|platform|channels|options)\b/i);
+  assert.match(html, /deploys to your own cloud account/);
 });
 
 /** Escape a CSS selector for use inside a RegExp. */

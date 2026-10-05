@@ -1074,6 +1074,9 @@ h3 {
   margin: 0;
   max-width: 56ch;
   color: var(--body);
+  /* The own-cloud sentence otherwise strands "account." on a line of its own
+     at every desktop width, because the measure is fixed in ch. */
+  text-wrap: pretty;
 }
 
 .hosted-cta > a {
@@ -1254,8 +1257,8 @@ h3 {
 }
 
 /* Below ~400px three equal pills cannot hold their labels, and the fixed grid
-   breaks "Hosted wizard" across two lines inside its own cell. Fall back to a
-   wrapping row so a label moves down whole instead of splitting. */
+   breaks the nav CTA's label across two lines inside its own cell. Fall back
+   to a wrapping row so a label moves down whole instead of splitting. */
 @media (max-width: 400px) {
   .site-header nav {
     display: flex;

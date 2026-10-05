@@ -2,7 +2,7 @@
 
 The default OpenClaw path and the alternate Hermes Agent path are both beta.
 The public CLI currently supports Telegram only; messaging choices in the
-hosted wizard do not imply support in this self-hosted CLI.
+aideploy.co web wizard do not imply support in this self-hosted CLI.
 
 ## 1. Prepare the four credentials
 
