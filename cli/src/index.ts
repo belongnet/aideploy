@@ -52,8 +52,8 @@ Prerequisites for \`up\` (have these 4 ready — creating them takes ~10 minutes
   4. One-off Tailscale auth key (Reusable off) + signed-in device
      https://login.tailscale.com/admin/settings/keys
 
-Zero-setup alternative: the hosted wizard deploys with 3 OAuth logins, no API keys —
-https://www.aideploy.co/?utm_source=cli&utm_medium=help
+Zero-setup alternative: the web wizard deploys to your own cloud with 3 OAuth logins
+and no API keys — https://www.aideploy.co/?utm_source=cli&utm_medium=help
 `;
 
 function withArgumentErrors<T>(parse: () => T): T {

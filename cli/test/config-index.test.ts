@@ -33,7 +33,7 @@ describe('ids and tags', () => {
 });
 
 describe('main (arg surface)', () => {
-  it('help exits 0 and shows the 4 prerequisites + hosted-wizard route', async () => {
+  it('help exits 0 and shows the 4 prerequisites + web-wizard route', async () => {
     const chunks: string[] = [];
     const orig = process.stdout.write.bind(process.stdout);
     (process.stdout as any).write = (s: string) => (chunks.push(String(s)), true);
@@ -46,6 +46,7 @@ describe('main (arg surface)', () => {
     expect(out).toMatch(/BotFather/);
     expect(out).toMatch(/Tailscale/);
     expect(out).toMatch(/Kimi/);
+    expect(out).toMatch(/web wizard deploys to your own cloud/);
     expect(out).toMatch(/utm_source=cli/);
   });
 

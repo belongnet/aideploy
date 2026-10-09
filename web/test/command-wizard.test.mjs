@@ -88,7 +88,7 @@ test('contains choices only and disables outbound data paths in the page policy'
   assert.doesNotMatch(app, /\b(?:localStorage|sessionStorage|indexedDB)\b/);
 });
 
-test('documents the public support boundary instead of emitting hosted-only flags', async () => {
+test('documents the public support boundary instead of emitting web-wizard-only flags', async () => {
   const html = await read('web/index.html');
   assert.deepEqual(CLOUDS.map(({ value }) => value), ['do']);
   assert.deepEqual(CHANNELS.map(({ value }) => value), ['telegram']);
@@ -96,8 +96,8 @@ test('documents the public support boundary instead of emitting hosted-only flag
   // The exact region set is pinned to the CLI's fallback catalog by its own
   // test; duplicating the list here would just be a second thing to forget.
   assert.ok(REGIONS.length >= 8, 'region catalog looks truncated');
-  assert.match(html, /Hosted wizard adds/);
-  assert.match(html, /Hosted channels/);
+  assert.match(html, /aria-label="Clouds available in the web wizard"/);
+  assert.match(html, /aria-label="Messaging channels available in the web wizard"/);
   assert.doesNotMatch(buildSourceCommand(DEFAULT_CHOICES), /(?:ovh|aws|gcp|azure|whatsapp|slack)/);
 });
 

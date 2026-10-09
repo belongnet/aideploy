@@ -19,7 +19,7 @@ Start with the public self-host kit in this repository, or use
 for the guided OAuth flow, more clouds and channels, multi-agent fleets, and
 managed operations.
 
-[**Launch with the hosted wizard →**](https://www.aideploy.co/?utm_source=github&utm_medium=readme_cta&utm_campaign=public_launch)
+[**Launch with the web wizard →**](https://www.aideploy.co/?utm_source=github&utm_medium=readme_cta&utm_campaign=public_launch)
  · [**Build a self-host command →**](https://build.aideploy.co/)
  · [**Self-host from source →**](#self-host-in-your-own-cloud)
  · [**Read the release notes →**](https://github.com/belongnet/aideploy/releases)
@@ -45,8 +45,9 @@ managed operations.
 
 ## Two ways to run it
 
-| | Public self-host kit — this repo | Hosted + managed platform |
+| | Public self-host kit — this repo | aideploy.co: web wizard + managed operations |
 |---|---|---|
+| Where your agent runs | Your own cloud account | Your own cloud account or computer |
 | Best for | Developers who want full control | Individuals, teams, agencies, and fleet operators |
 | Setup | Source checkout today; `npx aideploy` after the npm beta is enabled | Guided web wizard and API |
 | Cloud | DigitalOcean golden path | DigitalOcean, OVHcloud, Google Cloud, AWS, and Scaleway adapters |
@@ -59,7 +60,7 @@ managed operations.
 
 The public repository is the generic deployment foundation. Managed features
 are a separate product layer; this README labels that boundary instead of
-pretending every hosted feature ships in the public CLI.
+pretending every aideploy.co feature ships in the public CLI.
 
 ## Self-host in your own cloud
 
@@ -176,14 +177,14 @@ See the complete [self-host guide](./docs/self-host.md),
 
 ### Cloud providers
 
-| Provider | Public repository | Hosted platform | Current status |
+| Provider | Public repository | Web wizard | Current status |
 |---|---|---|---|
 | **DigitalOcean** | Live CLI module | OAuth wizard | **Golden path; CI + live E2E** |
-| **OVHcloud** | Not in the v1 CLI | Application credentials | Hosted beta; production control plane runs on OVH |
-| **Google Cloud** | OpenTofu reference module | OAuth adapter | Hosted beta; public module validate-only |
-| **AWS** | OpenTofu reference module | Access-key adapter | Hosted beta; public module validate-only |
-| **Scaleway Apple Silicon** | Not in the v1 CLI | API-key adapter | Hosted beta |
-| **Microsoft Azure** | OpenTofu reference module | Retained compatibility only | Validate-only; new hosted Azure deployments are disabled |
+| **OVHcloud** | Not in the v1 CLI | Application credentials | Web wizard beta; production control plane runs on OVH |
+| **Google Cloud** | OpenTofu reference module | OAuth adapter | Web wizard beta; public module validate-only |
+| **AWS** | OpenTofu reference module | Access-key adapter | Web wizard beta; public module validate-only |
+| **Scaleway Apple Silicon** | Not in the v1 CLI | API-key adapter | Web wizard beta |
+| **Microsoft Azure** | OpenTofu reference module | Retained compatibility only | Validate-only; the web wizard no longer starts new Azure deployments |
 
 “Reference module” means credential-free `tofu validate` runs in CI, but the
 public `aideploy up` command does not execute that module yet. We would rather
@@ -192,7 +193,7 @@ checkmark.
 
 ### Agent runtimes
 
-| Runtime | Shape | Public self-host | Hosted |
+| Runtime | Shape | Public self-host | Web wizard |
 |---|---|---|---|
 | **OpenClaw** | Multi-agent gateway and browser UI | Beta | Beta |
 | **Hermes Agent** | Fast single-agent runtime with skill workspace | Beta | Beta, default |
@@ -203,7 +204,7 @@ from the reviewed manifest.
 
 ### AI providers
 
-| Provider | Public self-host | Hosted connection | Default hosted model |
+| Provider | Public self-host | Web wizard connection | Web wizard default model |
 |---|---|---|---|
 | OpenAI / ChatGPT | API key | ChatGPT device connection or API key | GPT-5.5 |
 | Anthropic / Claude | API key | Claude connection or API key | Claude Opus 4.8 (1M) |
@@ -211,13 +212,14 @@ from the reviewed manifest.
 | Kimi | API key | API key | Kimi K2.6 |
 | DeepSeek | — | API key | DeepSeek Chat |
 
-Hosted agents can also connect an owner-managed Composio account for Gmail,
-Google Calendar, Sheets, Notion, Slack, HubSpot, and other business apps. Those
-credentials stay owner-controlled and are never accepted through ordinary chat.
+Agents deployed with the web wizard can also connect an owner-managed Composio
+account for Gmail, Google Calendar, Sheets, Notion, Slack, HubSpot, and other
+business apps. Those credentials stay owner-controlled and are never accepted
+through ordinary chat.
 
 ### Messaging and surfaces
 
-| Surface | Public self-host | Hosted OpenClaw | Hosted Hermes |
+| Surface | Public self-host | Web wizard · OpenClaw | Web wizard · Hermes |
 |---|---:|---:|---:|
 | Private browser over Tailscale HTTPS | ✅ | ✅ | ✅ |
 | Telegram | ✅ outbound polling | ✅ | ✅ |
@@ -231,7 +233,7 @@ polling.
 
 ## From one agent to a command center
 
-The hosted product builds on the same runtime contract:
+aideploy.co builds on the same runtime contract:
 
 - Deploy **1–16 agents** on one server with isolated workspaces, models,
   channels, and responsibilities.
@@ -337,8 +339,8 @@ Report vulnerabilities privately through GitHub or
 
 This is a public beta. The support labels above are contractual: DigitalOcean +
 Telegram is the self-host golden path, both runtimes boot in CI, and broader
-provider/channel support belongs to the hosted product until it graduates into
-the public CLI.
+provider/channel support belongs to aideploy.co until it graduates into the
+public CLI.
 
 The repository intentionally began with one clean, source-only root commit on
 August 24, 2026. Importing the private product monorepo's historical objects
@@ -363,4 +365,4 @@ Contributions that make the path from clone to “my agent replied” faster,
 safer, or available on another provider are especially welcome. Start with
 [CONTRIBUTING.md](./CONTRIBUTING.md), open an
 [issue](https://github.com/belongnet/aideploy/issues), or try the
-[hosted wizard](https://www.aideploy.co/?utm_source=github&utm_medium=readme_footer&utm_campaign=public_launch).
+[web wizard](https://www.aideploy.co/?utm_source=github&utm_medium=readme_footer&utm_campaign=public_launch).
